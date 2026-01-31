@@ -4,6 +4,8 @@ Boston Mesh has a custom batch of Washtastic boards that use the E22P module (no
 
 In the release uploads, I’ve also included the additional firmware changes needed to run the device as an MQTT Observer. This build enables packet logging via `-D MESH_PACKET_LOGGING=1`, set through `PLATFORMIO_BUILD_FLAGS` 
 
+![PXL_20251231_1801422752](https://github.com/user-attachments/assets/8eeb6797-cc85-424d-8826-65eec10f9227)
+
 # Download
 
 You can find all the downloads in the [Releases Page](https://github.com/yellowcooln/MeshCore-washtastic-e22p/tags).
