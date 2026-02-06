@@ -1,6 +1,6 @@
 # ProMicro Bootloader Update
 
-Some ProMicro boards ship with an older bootloader (for example, `0.6.0`). This guide walks through upgrading to a newer version (example shown: `0.9.2`).
+Some ProMicro boards ship with an older bootloader (for example, `0.6.0`). This guide walks through upgrading to a newer version (example shown: `0.10.0`).
 
 ## What you’ll need
 
@@ -8,14 +8,14 @@ Some ProMicro boards ship with an older bootloader (for example, `0.6.0`). This 
 - A USB cable + a computer
 - The latest bootloader `.uf2` file
 
-## 1) Download the latest bootloader
+## 1) Download the bootloader
 
-Download the newest bootloader file from here:  
-https://github.com/gargomoma/fakeTec_pcb?tab=readme-ov-file#bootloader
+Download the bootloader file from here:  
+[https://github.com/adafruit/Adafruit_nRF52_Bootloader/releases](https://github.com/adafruit/Adafruit_nRF52_Bootloader/releases)
 
-At the time of writing, the newest bootloader is:
+At the time of writing, the bootloader that FakeTec recommends is is:
 
-- `update-nice_nano_bootloader-0.9.2_nosd.uf2`
+- [`update-nice_nano_bootloader-0.10.0_nosd.uf2`](https://github.com/adafruit/Adafruit_nRF52_Bootloader/releases/download/0.10.0/update-nice_nano_bootloader-0.10.0_nosd.uf2)
 
 ## 2) Put the device into USB Storage mode
 
@@ -36,7 +36,7 @@ Open `INFO_UF2.TXT` on the **NICENANO** drive to see the currently installed boo
 
 ## 4) Flash the new bootloader
 
-Copy the new `.uf2` file (example: `update-nice_nano_bootloader-0.9.2_nosd.uf2`) onto the **NICENANO** drive.
+Copy the new `.uf2` file (example: `update-nice_nano_bootloader-0.10.0_nosd.uf2`) onto the **NICENANO** drive.
 
 The device should reboot automatically.
 
@@ -45,9 +45,9 @@ The device should reboot automatically.
 If it doesn’t reboot back into **NICENANO** mode:
 
 1. Press reset **twice quickly** again to re-enter USB Storage mode.
-2. Re-open `INFO_UF2.TXT` and confirm it shows `0.9.2` (or whatever the latest version is at the time).
+2. Re-open `INFO_UF2.TXT` and confirm it shows `0.10.0` (or whatever the latest version is at the time).
 
-<img width="740" height="280" alt="image" src="https://github.com/user-attachments/assets/e03b96c2-8bdf-4049-8bec-53c63a86318b" />
+<img width="400" height="249" alt="image" src="https://github.com/user-attachments/assets/1bb8cb06-db3c-435e-a626-feb69a07bccd" />
 
 ## 6) Reboot and flash MeshCore firmware
 
