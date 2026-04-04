@@ -8,7 +8,7 @@ In the release uploads, I’ve also included the additional firmware changes nee
 
 ## Bootloader Update
 
-We need to update the bootloader on the ProMicros. Make sure to follow [promicro-upgrade.md](https://github.com/yellowcooln/MeshCore-washtastic-e22p/blob/main/promicro-upgrade.md) before flashing the custom firmware.
+We need to update the bootloader on the ProMicros. Make sure to follow [promicro-upgrade.md](https://github.com/yellowcooln/MeshCore-washtastic-e22p/blob/v1.14.1-washtastic/promicro-upgrade.md) before flashing the custom firmware.
 
 ## Download
 
