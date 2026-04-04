@@ -16,6 +16,7 @@ jobs:
     runs-on:
       - self-hosted
       - linux
+      - washtastic-firmware
 
     steps:
       - name: Checkout Repo
