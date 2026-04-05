@@ -349,12 +349,22 @@ public:
             r.readGPS(lat, lon, alt);
             strcpy(name, "gps"); sprintf(buf, "%.4f %.4f", lat, lon);
             break;
+          case LPP_ANALOG_INPUT:
+            r.readAnalogInput(v);
+            strcpy(name, "analog in"); sprintf(buf, "%6.2f", v);
+            break;
           case LPP_VOLTAGE:
             r.readVoltage(v);
             strcpy(name, "voltage"); sprintf(buf, "%6.2f", v);
             break;
           case LPP_CURRENT:
             r.readCurrent(v);
+            #ifdef PHOTON_HAS_BATT_CHARGE_RATE
+            if (channel == TELEM_CHANNEL_BATTERY_CHARGE_RATE) {
+              strcpy(name, "charge rate"); sprintf(buf, "%+.2f %%/hr", v);
+              break;
+            }
+            #endif
             strcpy(name, "current"); sprintf(buf, "%.3f", v);
             break;
           case LPP_TEMPERATURE:
