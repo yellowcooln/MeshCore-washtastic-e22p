@@ -8,6 +8,25 @@
 #ifdef XIAO_NRF52
 
 class MeshsmithPhotonNRFBoard : public NRF52BoardDCDC {
+  static constexpr uint8_t FUEL_GAUGE_I2C_ADDRESS = 0x36;
+  static constexpr uint8_t FUEL_GAUGE_VCELL_REGISTER = 0x02;
+  static constexpr uint8_t FUEL_GAUGE_CRATE_REGISTER = 0x16;
+
+  bool readFuelGaugeRegister(uint8_t reg, uint16_t& value) {
+    Wire.beginTransmission(FUEL_GAUGE_I2C_ADDRESS);
+    Wire.write(reg);
+    if (Wire.endTransmission(false) != 0) {
+      return false;
+    }
+
+    if (Wire.requestFrom(FUEL_GAUGE_I2C_ADDRESS, (uint8_t)2) != 2) {
+      return false;
+    }
+
+    value = (Wire.read() << 8) | Wire.read();
+    return true;
+  }
+
 public:
   MeshsmithPhotonNRFBoard() : NRF52Board("XIAO_NRF52_OTA") {}
   void begin();
@@ -30,20 +49,22 @@ public:
 #endif
 
   uint16_t getBattMilliVolts() override {
-    // Read voltage from MAX17048G fuel gauge via I2C
-    // MAX17048 I2C address is 0x36, VCELL register is 0x02
-    // Returns voltage in 78.125µV units (1.25mV / 16)
-    Wire.beginTransmission(0x36);
-    Wire.write(0x02);  // VCELL register
-    Wire.endTransmission(false);
-    Wire.requestFrom(0x36, 2);
-    if (Wire.available() >= 2) {
-      uint16_t vcell = (Wire.read() << 8) | Wire.read();
-      // Convert to millivolts: vcell * 78.125µV / 1000 = vcell * 0.078125 mV
-      // Simplified: (vcell * 5) / 64 gives mV
+    // MAX17048 VCELL uses 78.125uV LSB units.
+    uint16_t vcell = 0;
+    if (readFuelGaugeRegister(FUEL_GAUGE_VCELL_REGISTER, vcell)) {
       return (uint32_t)(vcell * 5) / 64;
     }
-    return 0;  // Return 0 if read fails
+    return 0;
+  }
+
+  float getBattChargeRatePctPerHour() {
+    // MAX17048 CRATE is a signed 16-bit value with 0.208 %/hr LSB units.
+    uint16_t crate = 0;
+    if (!readFuelGaugeRegister(FUEL_GAUGE_CRATE_REGISTER, crate)) {
+      return NAN;
+    }
+
+    return (float)((int16_t)crate) * 0.208f;
   }
 
   const char *getManufacturerName() const override {
