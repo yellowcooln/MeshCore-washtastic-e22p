@@ -20,6 +20,53 @@ static uint32_t _atoi(const char* sp) {
   return n;
 }
 
+#if ENV_INCLUDE_GPS == 1 && defined(MESHSMITH_PHOTON_GPS_TIME)
+static void formatUTC(char* dest, size_t size, uint32_t epoch) {
+  DateTime dt = DateTime(epoch);
+  snprintf(dest, size, "%02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
+}
+
+static void formatClockSetReply(char* reply, uint32_t epoch) {
+  char time_buf[40];
+  formatUTC(time_buf, sizeof(time_buf), epoch);
+  snprintf(reply, 140, "OK - clock set: %s", time_buf);
+}
+
+static void formatClockStatusReply(char* reply, uint32_t epoch, LocationProvider* location, uint32_t interval_seconds) {
+  char time_buf[40];
+  char interval_buf[24];
+  formatUTC(time_buf, sizeof(time_buf), epoch);
+  if (interval_seconds == 0) {
+    strcpy(interval_buf, "off");
+  } else {
+    snprintf(interval_buf, sizeof(interval_buf), "%luh", (unsigned long)(interval_seconds / 3600));
+  }
+  snprintf(reply, 140, "%s, gps %s, sync %s%s",
+      time_buf,
+      location->isValid() ? "fix" : "nofix",
+      interval_buf,
+      location->waitingTimeSync() ? ", pending" : "");
+}
+
+static bool syncGPSClockNow(LocationProvider* location, mesh::RTCClock* rtc, char* reply) {
+  if (location == NULL) {
+    strcpy(reply, "gps provider not found");
+    return false;
+  }
+  if (!location->isEnabled()) {
+    strcpy(reply, "ERR: gps is off");
+    return false;
+  }
+  if (location->syncTimeNow(rtc)) {
+    formatClockSetReply(reply, rtc->getCurrentTime());
+    return true;
+  }
+  location->syncTime();
+  strcpy(reply, "waiting for gps time");
+  return false;
+}
+#endif
+
 static bool isValidName(const char *n) {
   while (*n) {
     if (*n == '[' || *n == ']' || *n == '\\' || *n == ':' || *n == ',' || *n == '?' || *n == '*') return false;
@@ -352,9 +399,50 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
     } else if (memcmp(command, "region", 6) == 0) {
       handleRegionCmd(command, reply);
 #if ENV_INCLUDE_GPS == 1
+#if defined(MESHSMITH_PHOTON_GPS_TIME)
+    } else if (memcmp(command, "gps time fetch", 14) == 0 && command[14] == 0) {
+      syncGPSClockNow(_sensors->getLocationProvider(), getRTCClock(), reply);
+    } else if (memcmp(command, "gps time ", 9) == 0) {
+      LocationProvider * l = _sensors->getLocationProvider();
+      if (l == NULL) {
+        strcpy(reply, "gps provider not found");
+      } else if (command[9] < '0' || command[9] > '9') {
+        strcpy(reply, "ERR: invalid hours");
+      } else {
+        uint32_t hours = _atoi(&command[9]);
+        if (hours > 720) {
+          strcpy(reply, "ERR: max 720 hours");
+        } else {
+          _prefs->gps_interval = hours * 3600UL;
+          l->setTimeSyncInterval(_prefs->gps_interval);
+          if (_prefs->gps_interval > 0) {
+            l->syncTime();
+            snprintf(reply, 140, "gps time sync every %luh", (unsigned long) hours);
+          } else {
+            l->cancelTimeSync();
+            strcpy(reply, "gps time sync off");
+          }
+          savePrefs();
+        }
+      }
+    } else if (memcmp(command, "gps time", 8) == 0 && command[8] == 0) {
+      LocationProvider * l = _sensors->getLocationProvider();
+      if (l != NULL) {
+        formatClockStatusReply(reply, getRTCClock()->getCurrentTime(), l, _prefs->gps_interval);
+      } else {
+        strcpy(reply, "gps provider not found");
+      }
+#endif
     } else if (memcmp(command, "gps on", 6) == 0) {
       if (_sensors->setSettingValue("gps", "1")) {
         _prefs->gps_enabled = 1;
+#if defined(MESHSMITH_PHOTON_GPS_TIME)
+        LocationProvider * l = _sensors->getLocationProvider();
+        if (l != NULL && _prefs->gps_interval > 0) {
+          l->setTimeSyncInterval(_prefs->gps_interval);
+          l->syncTime();
+        }
+#endif
         savePrefs();
         strcpy(reply, "ok");
       } else {
@@ -363,6 +451,12 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
     } else if (memcmp(command, "gps off", 7) == 0) {
       if (_sensors->setSettingValue("gps", "0")) {
         _prefs->gps_enabled = 0;
+#if defined(MESHSMITH_PHOTON_GPS_TIME)
+        LocationProvider * l = _sensors->getLocationProvider();
+        if (l != NULL) {
+          l->cancelTimeSync();
+        }
+#endif
         savePrefs();
         strcpy(reply, "ok");
       } else {
