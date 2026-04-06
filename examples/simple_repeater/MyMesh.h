@@ -160,6 +160,17 @@ protected:
 #if ENV_INCLUDE_GPS == 1
   void applyGpsPrefs() {
     sensors.setSettingValue("gps", _prefs.gps_enabled?"1":"0");
+#if defined(MESHSMITH_PHOTON_GPS_TIME)
+    LocationProvider* location = sensors.getLocationProvider();
+    if (location != NULL) {
+      location->setTimeSyncInterval(_prefs.gps_interval);
+      if (_prefs.gps_interval > 0) {
+        location->syncTime();
+      } else {
+        location->cancelTimeSync();
+      }
+    }
+#endif
   }
 #endif
 
