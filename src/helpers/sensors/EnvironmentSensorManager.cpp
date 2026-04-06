@@ -173,6 +173,24 @@ bool EnvironmentSensorManager::i2c_probe(TwoWire &wire, uint8_t addr) {
   return (error == 0); // If found i2c device, the error is 0
 }
 
+#if ENV_INCLUDE_GPS
+static void beginGPSUART() {
+  Serial1.setPins(PIN_GPS_TX, PIN_GPS_RX);
+
+  #ifdef GPS_BAUD_RATE
+  Serial1.begin(GPS_BAUD_RATE);
+  #else
+  Serial1.begin(9600);
+  #endif
+}
+
+static void endGPSUART() {
+#if GPS_SERIAL_SUSPEND_WHEN_STOPPED
+  Serial1.end();
+#endif
+}
+#endif
+
 bool EnvironmentSensorManager::begin() {
   #if ENV_INCLUDE_GPS
   #ifdef RAK_WISBLOCK_GPS
