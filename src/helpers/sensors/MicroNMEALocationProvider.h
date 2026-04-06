@@ -34,6 +34,7 @@
 #endif
 
 class MicroNMEALocationProvider : public LocationProvider {
+protected:
     char _nmeaBuffer[100];
     MicroNMEA nmea;
     mesh::RTCClock* _clock;
@@ -151,6 +152,10 @@ public :
 
     void sendSentence(const char *sentence) override {
         nmea.sendSentence(*_gps_serial, sentence);
+    }
+
+    Stream& gpsSerial() {
+        return *_gps_serial;
     }
 
     void loop() override {

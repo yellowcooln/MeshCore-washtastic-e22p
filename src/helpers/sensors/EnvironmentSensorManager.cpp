@@ -117,6 +117,10 @@ static RAK12035_SoilMoisture RAK12035;
 #define RAK_WISBLOCK_GPS
 #endif
 
+#ifndef GPS_SERIAL_SUSPEND_WHEN_STOPPED
+#define GPS_SERIAL_SUSPEND_WHEN_STOPPED 0
+#endif
+
 #ifdef RAK_WISBLOCK_GPS
 static uint32_t gpsResetPin = 0;
 static bool i2cGPSFlag = false;
@@ -159,6 +163,24 @@ public:
 };
 
 static RAK12500LocationProvider RAK12500_provider;
+#endif
+
+#if ENV_INCLUDE_GPS
+static void beginGPSUART() {
+  Serial1.setPins(PIN_GPS_TX, PIN_GPS_RX);
+
+  #ifdef GPS_BAUD_RATE
+  Serial1.begin(GPS_BAUD_RATE);
+  #else
+  Serial1.begin(9600);
+  #endif
+}
+
+static void endGPSUART() {
+#if GPS_SERIAL_SUSPEND_WHEN_STOPPED
+  Serial1.end();
+#endif
+}
 #endif
 
 bool EnvironmentSensorManager::begin() {
@@ -598,13 +620,7 @@ bool EnvironmentSensorManager::setSettingValue(const char* name, const char* val
 #if ENV_INCLUDE_GPS
 void EnvironmentSensorManager::initBasicGPS() {
 
-  Serial1.setPins(PIN_GPS_TX, PIN_GPS_RX);
-
-  #ifdef GPS_BAUD_RATE
-  Serial1.begin(GPS_BAUD_RATE);
-  #else
-  Serial1.begin(9600);
-  #endif
+  beginGPSUART();
 
   // Try to detect if GPS is physically connected to determine if we should expose the setting
   _location->begin();
@@ -633,8 +649,7 @@ void EnvironmentSensorManager::initBasicGPS() {
   } else {
     MESH_DEBUG_PRINTLN("No GPS detected");
   }
-  _location->stop();
-  gps_active = false; //Set GPS visibility off until setting is changed
+  stop_gps();
 }
 
 // gps code for rak might be moved to MicroNMEALoactionProvider
@@ -731,6 +746,7 @@ void EnvironmentSensorManager::start_gps() {
     return;
   #endif
 
+  beginGPSUART();
   _location->begin();
   _location->reset();
 
@@ -748,6 +764,7 @@ void EnvironmentSensorManager::stop_gps() {
   #endif
 
   _location->stop();
+  endGPSUART();
 
   #ifndef PIN_GPS_EN
   MESH_DEBUG_PRINTLN("Stop GPS is N/A on this board. Actual GPS state unchanged");
