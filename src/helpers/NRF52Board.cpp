@@ -323,8 +323,18 @@ bool NRF52Board::startOTAUpdate(const char *id, char reply[]) {
   // Adafruit/OTAFIX bootloaders check GPREGRET for 0xA8 to enter BLE DFU mode.
   // Jumping straight into the bootloader avoids relying on the app-side DFU
   // service, which can be hidden by the existing BLE runtime state.
-  strcpy(reply, "OK - rebooting to BLE DFU");
-  delay(50);
+  strcpy(reply, "OK - rebooting to BLE DFU mode");
+  ota_reboot_pending = true;
+  ota_reboot_at = millis() + 1000;
+  return true;
+}
+
+void NRF52Board::tick() {
+  if (!ota_reboot_pending || (int32_t)(millis() - ota_reboot_at) < 0) {
+    return;
+  }
+
+  ota_reboot_pending = false;
 
   uint8_t sd_enabled = 0;
   sd_softdevice_is_enabled(&sd_enabled);
@@ -335,7 +345,5 @@ bool NRF52Board::startOTAUpdate(const char *id, char reply[]) {
     NRF_POWER->GPREGRET = 0xA8;
     NVIC_SystemReset();
   }
-
-  return true;
 }
 #endif
