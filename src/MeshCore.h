@@ -62,6 +62,7 @@ public:
   virtual bool setLoRaFemLnaEnabled(bool enable) { return false; }
   virtual bool canControlLoRaFemLna() const { return false; }
   virtual bool isLoRaFemLnaEnabled() const { return false; }
+  virtual void tick() { /* no op */ }
 
   // Power management interface (boards with power management override these)
   virtual bool isExternalPowered() { return false; }

@@ -32,6 +32,8 @@ class NRF52Board : public mesh::MainBoard {
 protected:
   uint8_t startup_reason;
   char *ota_name;
+  bool ota_reboot_pending = false;
+  uint32_t ota_reboot_at = 0;
 
 #ifdef NRF52_POWER_MANAGEMENT
   uint32_t reset_reason;              // RESETREAS register value
@@ -52,6 +54,7 @@ public:
   virtual void reboot() override { NVIC_SystemReset(); }
   virtual bool getBootloaderVersion(char* version, size_t max_len) override;
   virtual bool startOTAUpdate(const char *id, char reply[]) override;
+  virtual void tick() override;
   virtual void sleep(uint32_t secs) override;
 
 #ifdef NRF52_POWER_MANAGEMENT
