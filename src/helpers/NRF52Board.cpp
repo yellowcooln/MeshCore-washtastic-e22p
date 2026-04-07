@@ -2,6 +2,7 @@
 #include "NRF52Board.h"
 
 #include <bluefruit.h>
+#include <nrf_nvic.h>
 #include <nrf_soc.h>
 
 static BLEDfu bledfu;
@@ -317,50 +318,32 @@ bool NRF52Board::getBootloaderVersion(char* out, size_t max_len) {
 }
 
 bool NRF52Board::startOTAUpdate(const char *id, char reply[]) {
-  // Config the peripheral connection with maximum bandwidth
-  // more SRAM required by SoftDevice
-  // Note: All config***() function must be called before begin()
-  Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
-  Bluefruit.configPrphConn(92, BLE_GAP_EVENT_LENGTH_MIN, 16, 16);
+  (void)id;
 
-  Bluefruit.begin(1, 0);
-  // Set max power. Accepted values are: -40, -30, -20, -16, -12, -8, -4, 0, 4
-  Bluefruit.setTxPower(4);
-  // Set the BLE device name
-  Bluefruit.setName(ota_name);
-
-  Bluefruit.Periph.setConnectCallback(connect_callback);
-  Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
-
-  // To be consistent OTA DFU should be added first if it exists
-  bledfu.begin();
-
-  // Set up and start advertising
-  // Advertising packet
-  Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
-  Bluefruit.Advertising.addTxPower();
-  Bluefruit.Advertising.addName();
-
-  /* Start Advertising
-    - Enable auto advertising if disconnected
-    - Interval:  fast mode = 20 ms, slow mode = 152.5 ms
-    - Timeout for fast mode is 30 seconds
-    - Start(timeout) with timeout = 0 will advertise forever (until connected)
-
-    For recommended advertising interval
-    https://developer.apple.com/library/content/qa/qa1931/_index.html
-  */
-  Bluefruit.Advertising.restartOnDisconnect(true);
-  Bluefruit.Advertising.setInterval(32, 244); // in unit of 0.625 ms
-  Bluefruit.Advertising.setFastTimeout(30);   // number of seconds in fast mode
-  Bluefruit.Advertising.start(0);             // 0 = Don't stop advertising after n seconds
-
-  uint8_t mac_addr[6];
-  memset(mac_addr, 0, sizeof(mac_addr));
-  Bluefruit.getAddr(mac_addr);
-  sprintf(reply, "OK - mac: %02X:%02X:%02X:%02X:%02X:%02X", mac_addr[5], mac_addr[4], mac_addr[3],
-          mac_addr[2], mac_addr[1], mac_addr[0]);
-
+  // Adafruit/OTAFIX bootloaders check GPREGRET for 0xA8 to enter BLE DFU mode.
+  // Jumping straight into the bootloader avoids relying on the app-side DFU
+  // service, which can be hidden by the existing BLE runtime state.
+  strcpy(reply, "OK - rebooting to BLE DFU mode");
+  ota_reboot_pending = true;
+  ota_reboot_at = millis() + 1000;
   return true;
+}
+
+void NRF52Board::tick() {
+  if (!ota_reboot_pending || (int32_t)(millis() - ota_reboot_at) < 0) {
+    return;
+  }
+
+  ota_reboot_pending = false;
+
+  uint8_t sd_enabled = 0;
+  sd_softdevice_is_enabled(&sd_enabled);
+  if (sd_enabled) {
+    sd_power_gpregret_set(0, 0xA8);
+    sd_nvic_SystemReset();
+  } else {
+    NRF_POWER->GPREGRET = 0xA8;
+    NVIC_SystemReset();
+  }
 }
 #endif
