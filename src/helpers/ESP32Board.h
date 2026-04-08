@@ -15,6 +15,7 @@ class ESP32Board : public mesh::MainBoard {
 protected:
   uint8_t startup_reason;
   bool inhibit_sleep = false;
+  static inline portMUX_TYPE sleepMux = portMUX_INITIALIZER_UNLOCKED;
 
 public:
   void begin() {
@@ -80,10 +81,8 @@ public:
     }
 #endif
 
-    // Configure GPIO wakeup
-    gpio_num_t wakeupPin = (gpio_num_t)getIRQGpio();
-    esp_sleep_enable_gpio_wakeup();
-    gpio_wakeup_enable((gpio_num_t)wakeupPin, GPIO_INTR_HIGH_LEVEL); // Wake up when receiving a LoRa packet
+    // Set GPIO wakeup
+    gpio_num_t wakeupPin = (gpio_num_t)getIRQGpio();    
 
     // Configure timer wakeup
     if (secs > 0) {
@@ -91,13 +90,18 @@ public:
     }
 
     // Disable CPU interrupt servicing
-    noInterrupts();
+    portENTER_CRITICAL(&sleepMux);
 
     // Skip sleep if there is a LoRa packet
-    if (digitalRead(wakeupPin) == HIGH) {
-      interrupts();
+    if (gpio_get_level(wakeupPin) == HIGH) {
+      portEXIT_CRITICAL(&sleepMux);
+      delay(1);
       return;
     }
+
+    // Configure GPIO wakeup
+    esp_sleep_enable_gpio_wakeup();
+    gpio_wakeup_enable((gpio_num_t)wakeupPin, GPIO_INTR_HIGH_LEVEL); // Wake up when receiving a LoRa packet
 
     // MCU enters light sleep
     esp_light_sleep_start();
@@ -107,7 +111,7 @@ public:
     gpio_set_intr_type(wakeupPin, GPIO_INTR_POSEDGE);
 
     // Enable CPU interrupt servicing
-    interrupts();
+    portEXIT_CRITICAL(&sleepMux);
   }
 
   uint8_t getStartupReason() const override { return startup_reason; }
