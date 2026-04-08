@@ -6,7 +6,7 @@
 #include "MeshsmithPhotonNRFBoard.h"
 
 void MeshsmithPhotonNRFBoard::begin() {
-  NRF52Board::begin();
+  NRF52BoardDCDC::begin();
 
 #if defined(PIN_WIRE_SDA) && defined(PIN_WIRE_SCL)
   Wire.setPins(PIN_WIRE_SDA, PIN_WIRE_SCL);
