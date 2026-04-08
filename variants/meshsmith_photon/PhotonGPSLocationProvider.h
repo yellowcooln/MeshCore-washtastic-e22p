@@ -16,19 +16,6 @@ class PhotonGPSLocationProvider : public MicroNMEALocationProvider {
   unsigned long _next_command_at_ms = 0;
   size_t _next_quiet_command = QUIET_COMMAND_COUNT;
 
-  static constexpr const char *QUIET_COMMANDS[QUIET_COMMAND_COUNT] = {
-    "$PAIR062,0,1", // GGA once per fix
-    "$PAIR062,1,0", // GLL off
-    "$PAIR062,2,0", // GSA off
-    "$PAIR062,3,1", // GSV once per fix for satellites-in-view details
-    "$PAIR062,4,1", // RMC once per fix
-    "$PAIR062,5,0", // VTG off
-    "$PAIR062,6,0", // ZDA off
-    "$PAIR062,7,0", // GRS off
-    "$PAIR062,8,0", // GST off
-    "$PAIR062,9,0", // GNS off
-  };
-
   bool powerToggleGuardElapsed() const {
     return _last_power_toggle_ms == 0 || (millis() - _last_power_toggle_ms) >= POWER_TOGGLE_GUARD_MS;
   }
@@ -44,13 +31,25 @@ class PhotonGPSLocationProvider : public MicroNMEALocationProvider {
   }
 
   void runDeferredCommands() {
+    static const char *const quiet_commands[QUIET_COMMAND_COUNT] = {
+      "$PAIR062,0,1", // GGA once per fix
+      "$PAIR062,1,0", // GLL off
+      "$PAIR062,2,0", // GSA off
+      "$PAIR062,3,1", // GSV once per fix for satellites-in-view details
+      "$PAIR062,4,1", // RMC once per fix
+      "$PAIR062,5,0", // VTG off
+      "$PAIR062,6,0", // ZDA off
+      "$PAIR062,7,0", // GRS off
+      "$PAIR062,8,0", // GST off
+      "$PAIR062,9,0", // GNS off
+    };
     if (_sleeping || _next_quiet_command >= QUIET_COMMAND_COUNT) {
       return;
     }
     if ((long)(millis() - _next_command_at_ms) < 0) {
       return;
     }
-    sendQueuedCommand(QUIET_COMMANDS[_next_quiet_command++]);
+    sendQueuedCommand(quiet_commands[_next_quiet_command++]);
   }
 
 public:
