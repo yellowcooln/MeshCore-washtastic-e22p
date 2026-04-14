@@ -23,6 +23,7 @@ protected:
   bool BME680_initialized = false;
   bool BMP085_initialized = false;
   bool RAK12035_initialized = false;
+  bool PCT2075_initialized = false;
 
   bool gps_detected = false;
   bool gps_active = false;
