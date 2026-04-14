@@ -21,6 +21,14 @@ static Adafruit_BME680 BME680(TELEM_WIRE);
 static Adafruit_BMP085 BMP085;
 #endif
 
+#if ENV_INCLUDE_PCT2075
+#ifndef TELEM_PCT2075_ADDRESS
+#define TELEM_PCT2075_ADDRESS   0x37
+#endif
+#include <Adafruit_PCT2075.h>
+static Adafruit_PCT2075 PCT2075;
+#endif
+
 #if ENV_INCLUDE_AHTX0
 #define TELEM_AHTX_ADDRESS      0x38      // AHT10, AHT20 temperature and humidity sensor I2C address
 #include <Adafruit_AHTX0.h>
@@ -376,6 +384,16 @@ bool EnvironmentSensorManager::begin() {
   }
   #endif
 
+  #if ENV_INCLUDE_PCT2075
+  if (PCT2075.begin(TELEM_PCT2075_ADDRESS, TELEM_WIRE)) {
+    MESH_DEBUG_PRINTLN("Found PCT2075 at address: %02X", TELEM_PCT2075_ADDRESS);
+    PCT2075_initialized = true;
+  } else {
+    PCT2075_initialized = false;
+    MESH_DEBUG_PRINTLN("PCT2075 was not found at I2C address %02X", TELEM_PCT2075_ADDRESS);
+  }
+  #endif
+
   return true;
 }
 
@@ -525,6 +543,12 @@ bool EnvironmentSensorManager::querySensors(uint8_t requester_permissions, Cayen
         telemetry.addTemperature(TELEM_CHANNEL_SELF, BMP085.readTemperature());
         telemetry.addBarometricPressure(TELEM_CHANNEL_SELF, BMP085.readPressure() / 100);
         telemetry.addAltitude(TELEM_CHANNEL_SELF, BMP085.readAltitude(TELEM_BMP085_SEALEVELPRESSURE_HPA * 100));
+    }
+    #endif
+
+    #if ENV_INCLUDE_PCT2075
+    if (PCT2075_initialized) {
+      telemetry.addTemperature(TELEM_CHANNEL_SELF, PCT2075.getTemperature());
     }
     #endif
 
