@@ -1,0 +1,56 @@
+name: Build Photon Firmwares
+
+on:
+  workflow_dispatch:
+    inputs:
+      firmware_version:
+        description: "Version used in artifact filenames, for example v1.15.0"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Build Environment
+        uses: ./.github/actions/setup-build-environment
+
+      - name: Resolve Firmware Version
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.firmware_version }}" ]; then
+            version="${{ inputs.firmware_version }}"
+          elif [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            version="${GITHUB_REF#refs/tags/}"
+          else
+            version="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          fi
+
+          if [ -z "${version}" ]; then
+            version="manual-${GITHUB_SHA::7}"
+          fi
+
+          echo "FIRMWARE_VERSION=${version}" >> "${GITHUB_ENV}"
+          echo "Using firmware version: ${version}"
+
+      - name: Build Photon Firmwares
+        shell: bash
+        env:
+          FIRMWARE_VERSION: ${{ env.FIRMWARE_VERSION }}
+        run: /usr/bin/env bash scripts/build-photon-firmwares.sh
+
+      - name: Upload Workflow Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: photon-firmwares-${{ env.FIRMWARE_VERSION }}
+          path: out/*
+          if-no-files-found: error
