@@ -37,6 +37,7 @@ build_photon_variant "meshsmith_photon_e22p_30dbm_companion_radio_usb" "Photon-C
 build_photon_variant "meshsmith_photon_e22p_30dbm_repeater" "Photon-Repeater"
 build_photon_variant "meshsmith_photon_e22p_30dbm_repeater" "Photon-Repeater" "-logging" "-DMESH_PACKET_LOGGING=1"
 build_photon_variant "meshsmith_photon_e22p_30dbm_room_server" "Photon-Room-Server"
+build_photon_variant "meshsmith_photon_e22p_30dbm_room_server" "Photon-Room-Server" "-logging" "-DMESH_PACKET_LOGGING=1"
 
 echo "Built files:"
 find "${OUTPUT_DIR}" -maxdepth 1 -type f | sort
