@@ -13,7 +13,10 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on:
+      - self-hosted
+      - linux
+      - washtastic-firmware
 
     steps:
       - name: Checkout Repo
