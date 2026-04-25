@@ -33,6 +33,10 @@ void HeltecV4Board::begin() {
   }
 
   void HeltecV4Board::enterDeepSleep(uint32_t secs, int pin_wake_btn) {
+    // Clear stale wakeup sources to avoid ghost wakeup
+    // This is required when Power Management and automatic lightsleep are enabled
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
 
     // Make sure the DIO1 and NSS GPIOs are hold on required levels during deep sleep
