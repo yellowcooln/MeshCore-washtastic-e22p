@@ -18,6 +18,29 @@
   #include <HardwareSerial.h>
 #endif
 
+#if defined(ENABLE_KISS_TCP)
+  #if !defined(ESP32)
+    #error "ENABLE_KISS_TCP is only supported on ESP32 targets"
+  #endif
+  #include <WiFi.h>
+
+  #ifndef KISS_TCP_PORT
+    #define KISS_TCP_PORT 8001
+  #endif
+  #ifndef KISS_WIFI_SSID
+    #define KISS_WIFI_SSID "MeshCore-KISS"
+  #endif
+  #ifndef KISS_WIFI_PASSWORD
+    #define KISS_WIFI_PASSWORD "meshcorekiss"
+  #endif
+  #ifndef KISS_WIFI_CHANNEL
+    #define KISS_WIFI_CHANNEL 1
+  #endif
+  #ifndef KISS_WIFI_CONNECT_TIMEOUT_MS
+    #define KISS_WIFI_CONNECT_TIMEOUT_MS 15000
+  #endif
+#endif
+
 #define NOISE_FLOOR_CALIB_INTERVAL_MS 2000
 #define AGC_RESET_INTERVAL_MS 30000
 
@@ -26,6 +49,11 @@ mesh::LocalIdentity identity;
 KissModem* modem;
 static uint32_t next_noise_floor_calib_ms = 0;
 static uint32_t next_agc_reset_ms = 0;
+
+#if defined(ENABLE_KISS_TCP)
+static WiFiServer kiss_server(KISS_TCP_PORT);
+static WiFiClient kiss_client;
+#endif
 
 void halt() {
   while (1) ;
@@ -73,6 +101,44 @@ void onGetStats(uint32_t* rx, uint32_t* tx, uint32_t* errors) {
   *errors = radio_driver.getPacketsRecvErrors();
 }
 
+#if defined(ENABLE_KISS_TCP)
+void beginKissTcp() {
+  Serial.begin(115200);
+  uint32_t start = millis();
+  while (!Serial && millis() - start < 3000) delay(10);
+
+#if defined(KISS_WIFI_STA)
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(KISS_WIFI_SSID, KISS_WIFI_PASSWORD);
+  start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < KISS_WIFI_CONNECT_TIMEOUT_MS) {
+    delay(100);
+  }
+#else
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(KISS_WIFI_SSID, KISS_WIFI_PASSWORD, KISS_WIFI_CHANNEL);
+#endif
+
+  kiss_server.begin(KISS_TCP_PORT);
+}
+
+void acceptKissTcpClient() {
+  WiFiClient new_client = kiss_server.available();
+  if (new_client) {
+    if (kiss_client) {
+      kiss_client.stop();
+    }
+    kiss_client = new_client;
+    kiss_client.setNoDelay(true);
+    modem->begin();
+  }
+
+  if (kiss_client && !kiss_client.connected()) {
+    kiss_client.stop();
+  }
+}
+#endif
+
 void setup() {
   board.begin();
 
@@ -87,7 +153,10 @@ void setup() {
 
   sensors.begin();
 
-#if defined(KISS_UART_RX) && defined(KISS_UART_TX)
+#if defined(ENABLE_KISS_TCP)
+  beginKissTcp();
+  modem = new KissModem(kiss_client, identity, rng, radio_driver, board, sensors);
+#elif defined(KISS_UART_RX) && defined(KISS_UART_TX)
 #if defined(ESP32)
   Serial1.setPins(KISS_UART_RX, KISS_UART_TX);
   Serial1.begin(115200);
@@ -124,7 +193,14 @@ void setup() {
 }
 
 void loop() {
+#if defined(ENABLE_KISS_TCP)
+  acceptKissTcpClient();
+  if (kiss_client && kiss_client.connected()) {
+    modem->loop();
+  }
+#else
   modem->loop();
+#endif
 
   if (!modem->isActuallyTransmitting()) {
     if (!modem->isTxBusy()) {

@@ -1,0 +1,168 @@
+name: Build Photon ESP32-C6 KISS TCP Firmware
+run-name: Build Photon ESP32-C6 KISS TCP Firmware (${{ github.ref_name }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      firmware_version:
+        description: "Version used in artifact filenames, for example v1.16.0"
+        required: false
+        type: string
+      publish_release:
+        description: "Publish the firmware files to a GitHub Release"
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: "Optional release tag. Defaults to photon-esp32-c6-kiss-tcp-<branch>-<version>"
+        required: false
+        type: string
+      release_name:
+        description: "Optional release title"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on:
+      - self-hosted
+      - linux
+      - photon-firmware
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Build Environment
+        uses: ./.github/actions/setup-build-environment
+
+      - name: Resolve Firmware Version
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.firmware_version }}" ]; then
+            version="${{ inputs.firmware_version }}"
+          elif [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            version="${GITHUB_REF#refs/tags/}"
+          else
+            version="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          fi
+
+          if [ -z "${version}" ]; then
+            version="manual-${GITHUB_SHA::7}"
+          fi
+
+          echo "FIRMWARE_VERSION=${version}" >> "${GITHUB_ENV}"
+          echo "Using firmware version: ${version}"
+
+      - name: Resolve Release Metadata
+        shell: bash
+        env:
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+          RELEASE_NAME_INPUT: ${{ inputs.release_name }}
+        run: |
+          sanitize_slug() {
+            printf '%s' "$1" \
+              | tr -cs 'A-Za-z0-9._-' '-' \
+              | sed -e 's/^-*//' -e 's/-*$//' -e 's/--*/-/g'
+          }
+
+          ref_slug="$(sanitize_slug "${GITHUB_REF_NAME:-manual}")"
+          version_slug="$(sanitize_slug "${FIRMWARE_VERSION}")"
+
+          if [ -n "${RELEASE_TAG_INPUT}" ]; then
+            release_tag="${RELEASE_TAG_INPUT}"
+          else
+            release_tag="photon-esp32-c6-kiss-tcp-${ref_slug}-${version_slug}"
+          fi
+
+          if [ -n "${RELEASE_NAME_INPUT}" ]; then
+            release_name="${RELEASE_NAME_INPUT}"
+          else
+            release_name="Photon ESP32-C6 KISS TCP ${GITHUB_REF_NAME:-manual} ${FIRMWARE_VERSION}"
+          fi
+
+          echo "RELEASE_TAG=${release_tag}" >> "${GITHUB_ENV}"
+          echo "RELEASE_NAME=${release_name}" >> "${GITHUB_ENV}"
+          echo "Using release tag: ${release_tag}"
+          echo "Using release name: ${release_name}"
+
+      - name: Build Photon ESP32-C6 KISS TCP Firmware
+        shell: bash
+        env:
+          FIRMWARE_VERSION: ${{ env.FIRMWARE_VERSION }}
+        run: /usr/bin/env bash scripts/build-photon-esp32-c6-kiss-tcp-firmware.sh
+
+      - name: Generate Release Manifest
+        shell: bash
+        env:
+          FIRMWARE_VERSION: ${{ env.FIRMWARE_VERSION }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          RELEASE_NAME: ${{ env.RELEASE_NAME }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          out_dir = Path("out")
+          files = []
+
+          for path in sorted(out_dir.iterdir()):
+              if not path.is_file():
+                  continue
+              files.append({
+                  "name": path.name,
+                  "size": path.stat().st_size,
+                  "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+              })
+
+          manifest = {
+              "product": "MeshSmith Photon KISS TCP",
+              "mcu": "ESP32-C6",
+              "environment": "photon_esp32_c6_kiss_tcp_modem",
+              "firmware_version": os.environ["FIRMWARE_VERSION"],
+              "release_tag": os.environ["RELEASE_TAG"],
+              "release_name": os.environ["RELEASE_NAME"],
+              "ref_name": os.environ.get("GITHUB_REF_NAME", ""),
+              "sha": os.environ.get("GITHUB_SHA", ""),
+              "repository": os.environ.get("GITHUB_REPOSITORY", ""),
+              "assets": files,
+          }
+
+          manifest_path = out_dir / "photon-esp32-c6-kiss-tcp-firmware-manifest.json"
+          manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+          print(f"Wrote {manifest_path}")
+          PY
+
+      - name: Upload Workflow Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: photon-esp32-c6-kiss-tcp-firmware-${{ env.FIRMWARE_VERSION }}
+          path: out/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: ${{ inputs.publish_release }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_NAME }}
+          target_commitish: ${{ github.sha }}
+          make_latest: false
+          files: out/*
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          body: |
+            MeshSmith Photon ESP32-C6 KISS TCP firmware build.
+
+            - Firmware version: `${{ env.FIRMWARE_VERSION }}`
+            - PlatformIO environment: `photon_esp32_c6_kiss_tcp_modem`
+            - Source ref: `${{ github.ref_name }}`
+            - Commit: `${{ github.sha }}`
+            - Runner label: `photon-firmware`
