@@ -107,6 +107,10 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   NeighbourInfo neighbours[MAX_NEIGHBOURS];
 #endif
   CayenneLPP telemetry;
+#ifdef ENABLE_BATTERY_INFO_ADVERT
+  mesh::GroupChannel batteryinfo_channel;
+  bool batteryinfo_channel_ready;
+#endif
   unsigned long set_radio_at, revert_radio_at;
   float pending_freq;
   float pending_bw;
@@ -126,6 +130,12 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   uint8_t handleAnonClockReq(const mesh::Identity& sender, uint32_t sender_timestamp, const uint8_t* data);
   int handleRequest(ClientInfo* sender, uint32_t sender_timestamp, uint8_t* payload, size_t payload_len);
   mesh::Packet* createSelfAdvert();
+#ifdef ENABLE_BATTERY_INFO_ADVERT
+  void initBatteryInfoChannel();
+  void sendBatteryInfoAdvert(int delay_millis = 0);
+  bool sendBatteryInfoGroupText(const char* body, size_t body_len, int delay_millis);
+  int maxBatteryInfoBodyLen() const;
+#endif
 
   File openAppend(const char* fname);
   bool isLooped(const mesh::Packet* packet, const uint8_t max_counters[]);
