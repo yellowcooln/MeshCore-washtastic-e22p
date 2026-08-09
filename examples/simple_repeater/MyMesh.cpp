@@ -1,5 +1,15 @@
 #include "MyMesh.h"
 #include <algorithm>
+#ifdef ENABLE_RX_POWERSAVING
+#include <helpers/radiolib/RXPowerSaving.h>
+#endif
+
+#ifdef ENABLE_BATTERY_INFO_ADVERT
+  #include <Utils.h>
+  #include <math.h>
+  #include <helpers/BatteryInfoAdvert.h>
+  #include <helpers/sensors/LPPDataHelpers.h>
+#endif
 
 /* ------------------------------ Config -------------------------------- */
 
@@ -59,6 +69,10 @@
 #define CLI_REPLY_DELAY_MILLIS      600
 
 #define LAZY_CONTACTS_WRITE_DELAY    5000
+
+#ifdef ENABLE_BATTERY_INFO_ADVERT
+static const char kBatteryInfoChannelSecretHex[] = BATTERY_INFO_CHANNEL_SECRET_HEX;
+#endif
 
 void MyMesh::putNeighbour(const mesh::Identity &id, uint32_t timestamp, float snr) {
 #if MAX_NEIGHBOURS // check if neighbours enabled
@@ -382,6 +396,213 @@ mesh::Packet *MyMesh::createSelfAdvert() {
 
   return createAdvert(self_id, app_data, app_data_len);
 }
+
+#ifdef ENABLE_BATTERY_INFO_ADVERT
+void MyMesh::initBatteryInfoChannel() {
+  if (batteryinfo_channel_ready) {
+    return;
+  }
+
+  memset(&batteryinfo_channel, 0, sizeof(batteryinfo_channel));
+  if (!mesh::Utils::fromHex(batteryinfo_channel.secret, 16, kBatteryInfoChannelSecretHex)) {
+    MESH_DEBUG_PRINTLN("batteryinfo: invalid channel secret");
+    return;
+  }
+
+  mesh::Utils::sha256(batteryinfo_channel.hash, sizeof(batteryinfo_channel.hash), batteryinfo_channel.secret, 16);
+  batteryinfo_channel_ready = true;
+}
+
+int MyMesh::maxBatteryInfoBodyLen() const {
+  const int prefix_len = (int)strlen(_prefs.node_name) + 2; // "<name>: "
+  int max_body = MAX_PACKET_PAYLOAD - CIPHER_BLOCK_SIZE - 5 - prefix_len;
+  if (max_body < 0) {
+    max_body = 0;
+  }
+  return max_body;
+}
+
+bool MyMesh::sendBatteryInfoGroupText(const char* body, size_t body_len, int delay_millis) {
+  if (!batteryinfo_channel_ready) {
+    return false;
+  }
+
+  const int max_body = maxBatteryInfoBodyLen();
+  if (max_body <= 0) {
+    return false;
+  }
+  if (body_len > (size_t)max_body) {
+    body_len = (size_t)max_body;
+  }
+
+  uint8_t temp[MAX_PACKET_PAYLOAD];
+  uint32_t timestamp = getRTCClock()->getCurrentTimeUnique();
+  memcpy(temp, &timestamp, 4);
+  temp[4] = 0; // TXT_TYPE_PLAIN
+
+  const size_t name_len = strlen(_prefs.node_name);
+  const size_t prefix_len = name_len + 2;
+  size_t offset = 5;
+  memcpy(&temp[offset], _prefs.node_name, name_len);
+  offset += name_len;
+  temp[offset++] = ':';
+  temp[offset++] = ' ';
+
+  memcpy(&temp[offset], body, body_len);
+  temp[offset + body_len] = 0; // null terminator (not counted)
+
+  const size_t data_len = offset + body_len;
+  mesh::Packet* pkt = createGroupDatagram(PAYLOAD_TYPE_GRP_TXT, batteryinfo_channel, temp, data_len);
+  if (pkt) {
+    sendFlood(pkt, delay_millis, _prefs.path_hash_mode + 1);
+    return true;
+  }
+  return false;
+}
+
+void MyMesh::sendBatteryInfoAdvert(int delay_millis) {
+  initBatteryInfoChannel();
+  if (!batteryinfo_channel_ready) {
+    return;
+  }
+
+  telemetry.reset();
+  const uint16_t battery_mv = board.getBattMilliVolts();
+  telemetry.addVoltage(TELEM_CHANNEL_SELF, (float)battery_mv / 1000.0f);
+
+  sensors.querySensors(0xFF, telemetry);
+
+  float temperature = board.getMCUTemperature();
+  if (!isnan(temperature)) {
+    telemetry.addTemperature(TELEM_CHANNEL_SELF, temperature);
+  }
+
+  const uint8_t tlen = telemetry.getSize();
+  float temp_c = 0.0f;
+  float humidity_pct = 0.0f;
+  float pressure_hpa = 0.0f;
+  float altitude_m = 0.0f;
+#ifdef PHOTON_HAS_BATT_CHARGE_RATE
+  float charge_rate_pct_per_hour = 0.0f;
+#endif
+  bool has_temp = false;
+  bool has_humidity = false;
+  bool has_pressure = false;
+  bool has_altitude = false;
+#ifdef PHOTON_HAS_BATT_CHARGE_RATE
+  bool has_charge_rate = false;
+#endif
+
+  LPPReader reader(telemetry.getBuffer(), tlen);
+  uint8_t channel = 0;
+  uint8_t type = 0;
+  while (reader.readHeader(channel, type)) {
+    switch (type) {
+      case LPP_TEMPERATURE: {
+        float value;
+        if (reader.readTemperature(value) && !has_temp) {
+          temp_c = value;
+          has_temp = true;
+        }
+        break;
+      }
+      case LPP_RELATIVE_HUMIDITY: {
+        float value;
+        if (reader.readRelativeHumidity(value) && !has_humidity) {
+          humidity_pct = value;
+          has_humidity = true;
+        }
+        break;
+      }
+      case LPP_BAROMETRIC_PRESSURE: {
+        float value;
+        if (reader.readPressure(value) && !has_pressure) {
+          pressure_hpa = value;
+          has_pressure = true;
+        }
+        break;
+      }
+      case LPP_ALTITUDE: {
+        float value;
+        if (reader.readAltitude(value) && !has_altitude) {
+          altitude_m = value;
+          has_altitude = true;
+        }
+        break;
+      }
+#ifdef PHOTON_HAS_BATT_CHARGE_RATE
+      case LPP_CURRENT: {
+        float value;
+        if (reader.readCurrent(value) && channel == TELEM_CHANNEL_BATTERY_CHARGE_RATE) {
+          charge_rate_pct_per_hour = value;
+          has_charge_rate = true;
+        }
+        break;
+      }
+#endif
+      default:
+        reader.skipData(type);
+        break;
+    }
+  }
+
+  const int max_body = maxBatteryInfoBodyLen();
+  if (max_body <= 0) {
+    return;
+  }
+
+  const float battery_v = (float)battery_mv / 1000.0f;
+  const int battery_pct = batteryInfoPercentFromMillivolts(battery_mv);
+
+  char temp_str[16];
+  char hum_str[16];
+  char press_str[16];
+  char alt_str[16];
+#ifdef PHOTON_HAS_BATT_CHARGE_RATE
+  char charge_rate_str[16];
+#endif
+
+  if (!has_temp) {
+    snprintf(temp_str, sizeof(temp_str), "na");
+  } else {
+    snprintf(temp_str, sizeof(temp_str), "%.1f", temp_c);
+  }
+  if (!has_humidity) {
+    snprintf(hum_str, sizeof(hum_str), "na");
+  } else {
+    snprintf(hum_str, sizeof(hum_str), "%.1f", humidity_pct);
+  }
+  if (!has_pressure) {
+    snprintf(press_str, sizeof(press_str), "na");
+  } else {
+    snprintf(press_str, sizeof(press_str), "%.1f", pressure_hpa);
+  }
+  if (!has_altitude) {
+    snprintf(alt_str, sizeof(alt_str), "na");
+  } else {
+    snprintf(alt_str, sizeof(alt_str), "%.0f", altitude_m);
+  }
+#ifdef PHOTON_HAS_BATT_CHARGE_RATE
+  if (!has_charge_rate) {
+    snprintf(charge_rate_str, sizeof(charge_rate_str), "na");
+  } else {
+    snprintf(charge_rate_str, sizeof(charge_rate_str), "%+.2f", charge_rate_pct_per_hour);
+  }
+#endif
+
+  char body[256];
+#ifdef PHOTON_HAS_BATT_CHARGE_RATE
+  snprintf(body, sizeof(body),
+           "battery=%.2fv %d%% charge=%s%%/hr temp=%sc hum=%s%% press=%shPa alt=%sm",
+           battery_v, battery_pct, charge_rate_str, temp_str, hum_str, press_str, alt_str);
+#else
+  snprintf(body, sizeof(body),
+           "battery=%.2fv %d%% temp=%sc hum=%s%% press=%shPa alt=%sm",
+           battery_v, battery_pct, temp_str, hum_str, press_str, alt_str);
+#endif
+  sendBatteryInfoGroupText(body, strlen(body), delay_millis);
+}
+#endif
 
 File MyMesh::openAppend(const char *fname) {
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
@@ -862,6 +1083,10 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _logging = false;
   region_load_active = false;
   recv_pkt_region = NULL;
+#ifdef ENABLE_BATTERY_INFO_ADVERT
+  batteryinfo_channel_ready = false;
+  memset(&batteryinfo_channel, 0, sizeof(batteryinfo_channel));
+#endif
 
 #if MAX_NEIGHBOURS
   memset(neighbours, 0, sizeof(neighbours));
@@ -962,6 +1187,44 @@ void MyMesh::begin(FILESYSTEM *fs) {
   MESH_DEBUG_PRINTLN("RX Boosted Gain Mode: %s",
                      radio_driver.getRxBoostedGainMode() ? "Enabled" : "Disabled");
   board.setLoRaFemLnaEnabled(_prefs.radio_fem_rxgain);
+#ifdef ENABLE_RX_POWERSAVING
+  bool rxps_prefs_changed = false;
+  uint8_t normalized_enabled = _prefs.rx_powersaving_enabled ? 1 : 0;
+  if (_prefs.rx_powersaving_enabled != normalized_enabled) {
+    _prefs.rx_powersaving_enabled = normalized_enabled;
+    rxps_prefs_changed = true;
+  }
+  if (_prefs.rx_ps_level > 10) {
+    _prefs.rx_ps_level = 0;
+    rxps_prefs_changed = true;
+  }
+  if (_prefs.rx_ps_preamble != 0 && _prefs.rx_ps_preamble != 16 && _prefs.rx_ps_preamble != 32) {
+    _prefs.rx_ps_preamble = 0;
+    rxps_prefs_changed = true;
+  }
+  uint32_t old_rx_us = _prefs.rx_ps_rx_us;
+  uint32_t old_sleep_us = _prefs.rx_ps_sleep_us;
+  ensureRxPowerSavingDefaults(&_prefs.rx_ps_rx_us, &_prefs.rx_ps_sleep_us);
+  if (old_rx_us != _prefs.rx_ps_rx_us || old_sleep_us != _prefs.rx_ps_sleep_us) rxps_prefs_changed = true;
+  if (_prefs.rx_ps_level > 0) {
+    old_rx_us = _prefs.rx_ps_rx_us;
+    old_sleep_us = _prefs.rx_ps_sleep_us;
+    if (!recalcRxPowerSavingFromLevel(_prefs.rx_ps_level, _prefs.sf, _prefs.bw, _prefs.rx_ps_preamble,
+                                      &_prefs.rx_ps_rx_us, &_prefs.rx_ps_sleep_us)) {
+      _prefs.rx_ps_level = 0;
+      _prefs.rx_ps_preamble = 0;
+      rxps_prefs_changed = true;
+    } else if (old_rx_us != _prefs.rx_ps_rx_us || old_sleep_us != _prefs.rx_ps_sleep_us) {
+      rxps_prefs_changed = true;
+    }
+  }
+  if (!setRxPowerSaving(_prefs.rx_powersaving_enabled, _prefs.rx_ps_rx_us, _prefs.rx_ps_sleep_us)) {
+    _prefs.rx_powersaving_enabled = 0;
+    setRxPowerSaving(false, _prefs.rx_ps_rx_us, _prefs.rx_ps_sleep_us);
+    rxps_prefs_changed = true;
+  }
+  if (rxps_prefs_changed) _cli.savePrefs(_fs);
+#endif
 
   updateAdvertTimer();
   updateFloodAdvertTimer();
@@ -1015,6 +1278,11 @@ void MyMesh::sendSelfAdvertisement(int delay_millis, bool flood) {
     } else {
       sendZeroHop(pkt, delay_millis);
     }
+#ifdef ENABLE_BATTERY_INFO_ADVERT
+    if (shouldSendBatteryInfoAdvert(true, flood)) {
+      sendBatteryInfoAdvert(delay_millis);
+    }
+#endif
   } else {
     MESH_DEBUG_PRINTLN("ERROR: unable to create advertisement packet!");
   }
@@ -1059,6 +1327,22 @@ void MyMesh::setTxPower(int8_t power_dbm) {
 bool MyMesh::setRxBoostedGain(bool enable) {
   return radio_driver.setRxBoostedGainMode(enable);
 }
+
+#ifdef ENABLE_RX_POWERSAVING
+bool MyMesh::setRxPowerSaving(bool enable, uint32_t rx_us, uint32_t sleep_us) {
+  bool ok = radio_driver.setRxPowerSaving(enable, rx_us, sleep_us);
+  MESH_DEBUG_PRINTLN("RX Power Saving: %s (%lu/%lu us)%s",
+                     enable ? "Enabled" : "Disabled",
+                     (unsigned long)rx_us, (unsigned long)sleep_us,
+                     ok ? "" : " unsupported");
+  return ok;
+}
+
+void MyMesh::getRxPsWatchdogCounts(uint32_t* soft, uint32_t* hard) {
+  *soft = radio_driver.getRxPsWatchdogSoftCount();
+  *hard = radio_driver.getRxPsWatchdogHardCount();
+}
+#endif
 
 #if defined(USE_LR2021)
 bool MyMesh::configSideDetectors(const uint8_t sideDetSFs[], uint8_t num, float bw) {
@@ -1273,7 +1557,14 @@ void MyMesh::loop() {
   if (next_flood_advert && millisHasNowPassed(next_flood_advert)) {
     mesh::Packet *pkt = createSelfAdvert();
     uint32_t delay_millis = 0;
-    if (pkt) sendFloodScoped(default_scope, pkt, delay_millis, _prefs.path_hash_mode + 1);
+    if (pkt) {
+      sendFloodScoped(default_scope, pkt, delay_millis, _prefs.path_hash_mode + 1);
+#ifdef ENABLE_BATTERY_INFO_ADVERT
+      if (shouldSendBatteryInfoAdvert(true, true)) {
+        sendBatteryInfoAdvert(delay_millis);
+      }
+#endif
+    }
 
     updateFloodAdvertTimer(); // schedule next flood advert
     updateAdvertTimer();      // also schedule local advert (so they don't overlap)
@@ -1287,12 +1578,22 @@ void MyMesh::loop() {
   if (set_radio_at && millisHasNowPassed(set_radio_at)) { // apply pending (temporary) radio params
     set_radio_at = 0;                                     // clear timer
     radio_driver.setParams(pending_freq, pending_bw, pending_sf, pending_cr);
+#ifdef ENABLE_RX_POWERSAVING
+    uint32_t temp_rx_us = _prefs.rx_ps_rx_us;
+    uint32_t temp_sleep_us = _prefs.rx_ps_sleep_us;
+    recalcRxPowerSavingFromLevel(_prefs.rx_ps_level, pending_sf, pending_bw, _prefs.rx_ps_preamble,
+                                 &temp_rx_us, &temp_sleep_us);
+    radio_driver.setRxPowerSaving(_prefs.rx_powersaving_enabled, temp_rx_us, temp_sleep_us);
+#endif
     MESH_DEBUG_PRINTLN("Temp radio params");
   }
 
   if (revert_radio_at && millisHasNowPassed(revert_radio_at)) { // revert radio params to orig
     revert_radio_at = 0;                                        // clear timer
     radio_driver.setParams(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr);
+#ifdef ENABLE_RX_POWERSAVING
+    radio_driver.setRxPowerSaving(_prefs.rx_powersaving_enabled, _prefs.rx_ps_rx_us, _prefs.rx_ps_sleep_us);
+#endif
     MESH_DEBUG_PRINTLN("Radio params restored");
   }
 
@@ -1312,6 +1613,10 @@ void MyMesh::loop() {
 bool MyMesh::hasPendingWork() const {
 #if defined(WITH_BRIDGE)
   if (bridge.isRunning()) return true;  // bridge needs WiFi radio, can't sleep
+#endif
+#ifdef ENABLE_RX_POWERSAVING
+  if (radio_driver.isWatchdogObserving()) return true;
+  if (radio_driver.isCalibratingNoiseFloor()) return true;
 #endif
   return _mgr->getOutboundTotal() > 0;
 }
