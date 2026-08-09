@@ -38,6 +38,7 @@
 #endif
 
 class MicroNMEALocationProvider : public LocationProvider {
+protected:
     char _nmeaBuffer[100];
     MicroNMEA nmea;
     mesh::RTCClock* _clock;
@@ -49,7 +50,9 @@ class MicroNMEALocationProvider : public LocationProvider {
     unsigned long next_check = 0;
     long time_valid = 0;
     unsigned long _last_time_sync = 0;
+#if !defined(MESHSMITH_PHOTON_GPS_TIME)
     static const unsigned long TIME_SYNC_INTERVAL = 1800000; // Re-sync every 30 minutes
+#endif
 
 public :
     MicroNMEALocationProvider(Stream& ser, mesh::RTCClock* clock = NULL, int pin_reset = GPS_RESET, int pin_en = GPS_EN,RefCountedDigitalPin* peripher_power=NULL) :
@@ -123,14 +126,38 @@ public :
     }
     long satellitesCount() override { return nmea.getNumSatellites(); }
     bool isValid() override { return nmea.isValid(); }
+#if defined(MESHSMITH_PHOTON_GPS_TIME)
+    bool hasValidTimestamp() override {
+        int year = nmea.getYear();
+        int month = nmea.getMonth();
+        int day = nmea.getDay();
+        return isValid() &&
+            year >= 2000 && year <= 2099 &&
+            month >= 1 && month <= 12 &&
+            day >= 1 && day <= 31;
+    }
+#endif
 
     long getTimestamp() override { 
         DateTime dt(nmea.getYear(), nmea.getMonth(),nmea.getDay(),nmea.getHour(),nmea.getMinute(),nmea.getSecond());
         return dt.unixtime();
     } 
 
+#if defined(MESHSMITH_PHOTON_GPS_TIME)
+    bool syncTimeNow(mesh::RTCClock* clock) override {
+        mesh::RTCClock* target_clock = clock != NULL ? clock : _clock;
+        if (!LocationProvider::syncTimeNow(target_clock)) return false;
+        _last_time_sync = millis();
+        return true;
+    }
+#endif
+
     void sendSentence(const char *sentence) override {
         nmea.sendSentence(*_gps_serial, sentence);
+    }
+
+    Stream& gpsSerial() {
+        return *_gps_serial;
     }
 
     void loop() override {
@@ -147,6 +174,16 @@ public :
 
         if ((long)(millis() - next_check) > 0) {
             next_check = millis() + 1000;
+#if defined(MESHSMITH_PHOTON_GPS_TIME)
+            // Re-enable time sync when the configured interval has elapsed.
+            if (!_time_sync_needed && _clock != NULL && _time_sync_interval > 0 &&
+                _last_time_sync > 0 && (millis() - _last_time_sync) > (_time_sync_interval * 1000UL)) {
+                _time_sync_needed = true;
+            }
+            if (_time_sync_needed && time_valid > 2) {
+                syncTimeNow(_clock);
+            }
+#else
             // Re-enable time sync periodically when GPS has valid fix
             if (!_time_sync_needed && _clock != NULL && (millis() - _last_time_sync) > TIME_SYNC_INTERVAL) {
                 _time_sync_needed = true;
@@ -158,6 +195,7 @@ public :
                     _last_time_sync = millis();
                 }
             }
+#endif
             if (isValid()) {
                 time_valid ++;
             }

@@ -52,6 +52,14 @@ static Adafruit_BME680 BME680(TELEM_WIRE);
 static Adafruit_BMP085 BMP085;
 #endif
 
+#if ENV_INCLUDE_PCT2075
+#ifndef TELEM_PCT2075_ADDRESS
+#define TELEM_PCT2075_ADDRESS 0x37
+#endif
+#include <Adafruit_PCT2075.h>
+static Adafruit_PCT2075 PCT2075;
+#endif
+
 #if ENV_INCLUDE_AHTX0
 #ifndef TELEM_AHTX_ADDRESS
 #define TELEM_AHTX_ADDRESS      0x38      // AHT10, AHT20 temperature and humidity sensor I2C address
@@ -162,6 +170,10 @@ static RAK12035_SoilMoisture RAK12035;
 
 #if ENV_INCLUDE_GPS && defined(RAK_BOARD) && !defined(RAK_WISMESH_TAG)
 #define RAK_WISBLOCK_GPS
+#endif
+
+#ifndef GPS_SERIAL_SUSPEND_WHEN_STOPPED
+#define GPS_SERIAL_SUSPEND_WHEN_STOPPED 0
 #endif
 
 #ifdef RAK_WISBLOCK_GPS
@@ -445,6 +457,15 @@ static void query_bmp085(uint8_t ch, uint8_t, CayenneLPP& lpp) {
 }
 #endif
 
+#if ENV_INCLUDE_PCT2075
+static uint8_t init_pct2075(TwoWire* wire, uint8_t addr) {
+  return PCT2075.begin(addr, wire) ? 1 : 0;
+}
+static void query_pct2075(uint8_t ch, uint8_t, CayenneLPP& lpp) {
+  lpp.addTemperature(ch, PCT2075.getTemperature());
+}
+#endif
+
 #if ENV_INCLUDE_RAK12035
 static uint8_t init_rak12035(TwoWire* wire, uint8_t addr) {
   // RAK12035 requires setup() before begin().
@@ -597,6 +618,9 @@ static const SensorDef SENSOR_TABLE[] = {
 #ifdef ENV_INCLUDE_BMP085
   { 0x77,                  "BMP085",       init_bmp085,   query_bmp085   },
 #endif
+#if ENV_INCLUDE_PCT2075
+  { TELEM_PCT2075_ADDRESS, "PCT2075",      init_pct2075,  query_pct2075  },
+#endif
 #if ENV_INCLUDE_RAK12035
   { TELEM_RAK12035_ADDRESS,"RAK12035",     init_rak12035, query_rak12035 },
 #endif
@@ -611,6 +635,24 @@ static const size_t SENSOR_TABLE_SIZE = (sizeof(SENSOR_TABLE) / sizeof(SENSOR_TA
 // is never touched by a library call, preventing hangs or
 // crashes caused by absent or misbehaving hardware.
 // ============================================================
+
+#if ENV_INCLUDE_GPS
+static void beginGPSUART() {
+  Serial1.setPins(PIN_GPS_TX, PIN_GPS_RX);
+
+  #ifdef GPS_BAUD_RATE
+  Serial1.begin(GPS_BAUD_RATE);
+  #else
+  Serial1.begin(9600);
+  #endif
+}
+
+static void endGPSUART() {
+#if GPS_SERIAL_SUSPEND_WHEN_STOPPED
+  Serial1.end();
+#endif
+}
+#endif
 
 bool EnvironmentSensorManager::begin() {
   #if ENV_INCLUDE_GPS
@@ -732,13 +774,7 @@ bool EnvironmentSensorManager::setSettingValue(const char* name, const char* val
 #if ENV_INCLUDE_GPS
 void EnvironmentSensorManager::initBasicGPS() {
 
-  Serial1.setPins(PIN_GPS_TX, PIN_GPS_RX);
-
-  #ifdef GPS_BAUD_RATE
-  Serial1.begin(GPS_BAUD_RATE);
-  #else
-  Serial1.begin(9600);
-  #endif
+  beginGPSUART();
 
   // Try to detect if GPS is physically connected to determine if we should expose the setting
   _location->begin();
@@ -767,8 +803,7 @@ void EnvironmentSensorManager::initBasicGPS() {
   } else {
     MESH_DEBUG_PRINTLN("No GPS detected");
   }
-  _location->stop();
-  gps_active = false; //Set GPS visibility off until setting is changed
+  stop_gps();
 }
 
 // gps code for rak might be moved to MicroNMEALoactionProvider
@@ -868,6 +903,7 @@ void EnvironmentSensorManager::start_gps() {
     return;
   #endif
 
+  beginGPSUART();
   _location->begin();
   _location->reset();
 
@@ -885,6 +921,7 @@ void EnvironmentSensorManager::stop_gps() {
   #endif
 
   _location->stop();
+  endGPSUART();
 
   #ifndef PIN_GPS_EN
   MESH_DEBUG_PRINTLN("Stop GPS is N/A on this board. Actual GPS state unchanged");

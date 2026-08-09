@@ -3,6 +3,7 @@
 #include <target.h>
 
 #include <bluefruit.h>
+#include <nrf_nvic.h>
 #include <nrf_soc.h>
 
 static BLEDfu bledfu;
@@ -390,6 +391,16 @@ bool NRF52Board::getBootloaderVersion(char* out, size_t max_len) {
 }
 
 bool NRF52Board::startOTAUpdate(const char *id, char reply[]) {
+#if defined(MESHSMITH_PHOTON_NRF52)
+  (void)id;
+
+  // The Photon uses an Adafruit/OTAFIX bootloader that enters BLE DFU when
+  // GPREGRET is set to 0xA8. Delay the reset so the CLI reply can be sent.
+  strcpy(reply, "OK - rebooting to BLE DFU mode");
+  ota_reboot_pending = true;
+  ota_reboot_at = millis() + 1000;
+  return true;
+#else
   // Config the peripheral connection with maximum bandwidth
   // more SRAM required by SoftDevice
   // Note: All config***() function must be called before begin()
@@ -434,7 +445,25 @@ bool NRF52Board::startOTAUpdate(const char *id, char reply[]) {
   Bluefruit.getAddr(mac_addr);
   sprintf(reply, "OK - mac: %02X:%02X:%02X:%02X:%02X:%02X", mac_addr[5], mac_addr[4], mac_addr[3],
           mac_addr[2], mac_addr[1], mac_addr[0]);
-
   return true;
+#endif
+}
+
+void NRF52Board::tick() {
+  if (!ota_reboot_pending || (int32_t)(millis() - ota_reboot_at) < 0) {
+    return;
+  }
+
+  ota_reboot_pending = false;
+
+  uint8_t sd_enabled = 0;
+  sd_softdevice_is_enabled(&sd_enabled);
+  if (sd_enabled) {
+    sd_power_gpregret_set(0, 0xA8);
+    sd_nvic_SystemReset();
+  } else {
+    NRF_POWER->GPREGRET = 0xA8;
+    NVIC_SystemReset();
+  }
 }
 #endif

@@ -146,6 +146,7 @@ void loop() {
   }
 
   the_mesh.loop();
+  board.tick();
   sensors.loop();
 #ifdef DISPLAY_CLASS
   ui_task.loop();
