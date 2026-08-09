@@ -1,5 +1,8 @@
 #include "MyMesh.h"
 #include <algorithm>
+#ifdef ENABLE_RX_POWERSAVING
+#include <helpers/radiolib/RXPowerSaving.h>
+#endif
 
 #ifdef ENABLE_BATTERY_INFO_ADVERT
   #include <Utils.h>
@@ -1165,6 +1168,44 @@ void MyMesh::begin(FILESYSTEM *fs) {
   MESH_DEBUG_PRINTLN("RX Boosted Gain Mode: %s",
                      radio_driver.getRxBoostedGainMode() ? "Enabled" : "Disabled");
   board.setLoRaFemLnaEnabled(_prefs.radio_fem_rxgain);
+#ifdef ENABLE_RX_POWERSAVING
+  bool rxps_prefs_changed = false;
+  uint8_t normalized_enabled = _prefs.rx_powersaving_enabled ? 1 : 0;
+  if (_prefs.rx_powersaving_enabled != normalized_enabled) {
+    _prefs.rx_powersaving_enabled = normalized_enabled;
+    rxps_prefs_changed = true;
+  }
+  if (_prefs.rx_ps_level > 10) {
+    _prefs.rx_ps_level = 0;
+    rxps_prefs_changed = true;
+  }
+  if (_prefs.rx_ps_preamble != 0 && _prefs.rx_ps_preamble != 16 && _prefs.rx_ps_preamble != 32) {
+    _prefs.rx_ps_preamble = 0;
+    rxps_prefs_changed = true;
+  }
+  uint32_t old_rx_us = _prefs.rx_ps_rx_us;
+  uint32_t old_sleep_us = _prefs.rx_ps_sleep_us;
+  ensureRxPowerSavingDefaults(&_prefs.rx_ps_rx_us, &_prefs.rx_ps_sleep_us);
+  if (old_rx_us != _prefs.rx_ps_rx_us || old_sleep_us != _prefs.rx_ps_sleep_us) rxps_prefs_changed = true;
+  if (_prefs.rx_ps_level > 0) {
+    old_rx_us = _prefs.rx_ps_rx_us;
+    old_sleep_us = _prefs.rx_ps_sleep_us;
+    if (!recalcRxPowerSavingFromLevel(_prefs.rx_ps_level, _prefs.sf, _prefs.bw, _prefs.rx_ps_preamble,
+                                      &_prefs.rx_ps_rx_us, &_prefs.rx_ps_sleep_us)) {
+      _prefs.rx_ps_level = 0;
+      _prefs.rx_ps_preamble = 0;
+      rxps_prefs_changed = true;
+    } else if (old_rx_us != _prefs.rx_ps_rx_us || old_sleep_us != _prefs.rx_ps_sleep_us) {
+      rxps_prefs_changed = true;
+    }
+  }
+  if (!setRxPowerSaving(_prefs.rx_powersaving_enabled, _prefs.rx_ps_rx_us, _prefs.rx_ps_sleep_us)) {
+    _prefs.rx_powersaving_enabled = 0;
+    setRxPowerSaving(false, _prefs.rx_ps_rx_us, _prefs.rx_ps_sleep_us);
+    rxps_prefs_changed = true;
+  }
+  if (rxps_prefs_changed) _cli.savePrefs(_fs);
+#endif
 
   updateAdvertTimer();
   updateFloodAdvertTimer();
@@ -1265,6 +1306,22 @@ void MyMesh::setTxPower(int8_t power_dbm) {
 bool MyMesh::setRxBoostedGain(bool enable) {
   return radio_driver.setRxBoostedGainMode(enable);
 }
+
+#ifdef ENABLE_RX_POWERSAVING
+bool MyMesh::setRxPowerSaving(bool enable, uint32_t rx_us, uint32_t sleep_us) {
+  bool ok = radio_driver.setRxPowerSaving(enable, rx_us, sleep_us);
+  MESH_DEBUG_PRINTLN("RX Power Saving: %s (%lu/%lu us)%s",
+                     enable ? "Enabled" : "Disabled",
+                     (unsigned long)rx_us, (unsigned long)sleep_us,
+                     ok ? "" : " unsupported");
+  return ok;
+}
+
+void MyMesh::getRxPsWatchdogCounts(uint32_t* soft, uint32_t* hard) {
+  *soft = radio_driver.getRxPsWatchdogSoftCount();
+  *hard = radio_driver.getRxPsWatchdogHardCount();
+}
+#endif
 
 #if defined(USE_LR2021)
 bool MyMesh::configSideDetectors(const uint8_t sideDetSFs[], uint8_t num, float bw) {
@@ -1498,12 +1555,22 @@ void MyMesh::loop() {
   if (set_radio_at && millisHasNowPassed(set_radio_at)) { // apply pending (temporary) radio params
     set_radio_at = 0;                                     // clear timer
     radio_driver.setParams(pending_freq, pending_bw, pending_sf, pending_cr);
+#ifdef ENABLE_RX_POWERSAVING
+    uint32_t temp_rx_us = _prefs.rx_ps_rx_us;
+    uint32_t temp_sleep_us = _prefs.rx_ps_sleep_us;
+    recalcRxPowerSavingFromLevel(_prefs.rx_ps_level, pending_sf, pending_bw, _prefs.rx_ps_preamble,
+                                 &temp_rx_us, &temp_sleep_us);
+    radio_driver.setRxPowerSaving(_prefs.rx_powersaving_enabled, temp_rx_us, temp_sleep_us);
+#endif
     MESH_DEBUG_PRINTLN("Temp radio params");
   }
 
   if (revert_radio_at && millisHasNowPassed(revert_radio_at)) { // revert radio params to orig
     revert_radio_at = 0;                                        // clear timer
     radio_driver.setParams(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr);
+#ifdef ENABLE_RX_POWERSAVING
+    radio_driver.setRxPowerSaving(_prefs.rx_powersaving_enabled, _prefs.rx_ps_rx_us, _prefs.rx_ps_sleep_us);
+#endif
     MESH_DEBUG_PRINTLN("Radio params restored");
   }
 
@@ -1523,6 +1590,10 @@ void MyMesh::loop() {
 bool MyMesh::hasPendingWork() const {
 #if defined(WITH_BRIDGE)
   if (bridge.isRunning()) return true;  // bridge needs WiFi radio, can't sleep
+#endif
+#ifdef ENABLE_RX_POWERSAVING
+  if (radio_driver.isWatchdogObserving()) return true;
+  if (radio_driver.isCalibratingNoiseFloor()) return true;
 #endif
   return _mgr->getOutboundTotal() > 0;
 }

@@ -9,9 +9,9 @@ fi
 
 OUTPUT_DIR="${OUTPUT_DIR:-out}"
 FIRMWARE_BUILD_DATE="$(date '+%d-%b-%Y')"
-BUILD_VERSION="${FIRMWARE_VERSION}-Heltec-V4-BatteryInfo"
-ENV_NAME="heltec_v4_batteryinfo_repeater"
-ASSET_NAME="Heltec-V4-BatteryInfo-Repeater"
+BUILD_VERSION="${FIRMWARE_VERSION}-Heltec-V4-BatteryInfo-PowerSaving"
+ENV_NAME="heltec_v4_batteryinfo_powersaving_repeater"
+ASSET_NAME="Heltec-V4-BatteryInfo-PowerSaving-Repeater"
 
 rm -rf "${OUTPUT_DIR}"
 mkdir -p "${OUTPUT_DIR}"

@@ -6,6 +6,9 @@
 #include <helpers/ClientACL.h>
 #include <helpers/RegionMap.h>
 #include <helpers/ConfigSerializer.h>
+#ifdef ENABLE_RX_POWERSAVING
+#include <helpers/radiolib/RXPowerSaving.h>
+#endif
 
 #if defined(WITH_RS232_BRIDGE) || defined(WITH_ESPNOW_BRIDGE)
 #define WITH_BRIDGE
@@ -69,6 +72,13 @@ public:
   uint8_t loop_detect = 0;
   uint8_t cad_enabled = 0;      // hardware Channel Activity Detection before TX (boolean)
   uint8_t extra_sf[4];
+#ifdef ENABLE_RX_POWERSAVING
+  uint8_t rx_powersaving_enabled = 0;
+  uint32_t rx_ps_rx_us = RX_POWERSAVING_DEFAULT_RX_US;
+  uint32_t rx_ps_sleep_us = RX_POWERSAVING_DEFAULT_SLEEP_US;
+  uint8_t rx_ps_level = 0;      // 0=manual timings; 1..10=level-derived
+  uint8_t rx_ps_preamble = 0;   // 0=auto from SF; otherwise 16 or 32
+#endif
 
 private:
   class RadioPrefs : public ConfigSerializer {
@@ -91,6 +101,13 @@ private:
       def("agc_int", _parent->agc_reset_interval);
       def("hash_mode", _parent->path_hash_mode);
       def("multi_ack", _parent->multi_acks);
+#ifdef ENABLE_RX_POWERSAVING
+      def("rxps_en", _parent->rx_powersaving_enabled);
+      def("rxps_rx_us", _parent->rx_ps_rx_us);
+      def("rxps_sleep_us", _parent->rx_ps_sleep_us);
+      def("rxps_level", _parent->rx_ps_level);
+      def("rxps_preamble", _parent->rx_ps_preamble);
+#endif
     }
   public:
     RadioPrefs(NodePrefs* parent) : _parent(parent) { }
@@ -239,6 +256,17 @@ public:
   virtual bool setRxBoostedGain(bool enable) {
     return false; // CommonCLI reports unsupported if not overridden by wrapper
   };
+
+#ifdef ENABLE_RX_POWERSAVING
+  virtual bool setRxPowerSaving(bool enable, uint32_t rx_us, uint32_t sleep_us) {
+    return !enable;
+  }
+
+  virtual void getRxPsWatchdogCounts(uint32_t* soft, uint32_t* hard) {
+    *soft = 0;
+    *hard = 0;
+  }
+#endif
 
   #if defined(USE_LR2021)
   virtual bool configSideDetectors(const uint8_t sideDetSFs[], uint8_t num, float bw) {

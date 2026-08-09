@@ -1,5 +1,5 @@
-name: Build Heltec V4 BatteryInfo Repeater
-run-name: Build Heltec V4 BatteryInfo Repeater (${{ github.ref_name }})
+name: Build Heltec V4 BatteryInfo PowerSaving Repeater
+run-name: Build Heltec V4 BatteryInfo PowerSaving Repeater (${{ github.ref_name }})
 
 on:
   workflow_dispatch:
@@ -49,11 +49,11 @@ jobs:
         shell: bash
         env:
           FIRMWARE_VERSION: ${{ env.FIRMWARE_VERSION }}
-        run: /usr/bin/env bash scripts/build-heltec-v4-batteryinfo-repeater.sh
+        run: /usr/bin/env bash scripts/build-heltec-v4-batteryinfo-powersaving-repeater.sh
 
       - name: Upload Workflow Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: heltec-v4-batteryinfo-repeater-${{ env.FIRMWARE_VERSION }}
+          name: heltec-v4-batteryinfo-powersaving-repeater-${{ env.FIRMWARE_VERSION }}
           path: out/*
           if-no-files-found: error
