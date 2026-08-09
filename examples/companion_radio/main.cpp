@@ -57,6 +57,16 @@ MultiSerialInterface interface_manager;
   ETHERNET_CLASS ethernet_interface;
 #endif
 
+// include native ESP32 Ethernet companion interface
+#if defined(ETHERNET_COMPANION)
+  #ifndef TCP_PORT
+    #define TCP_PORT 5000
+  #endif
+  #include <helpers/esp32/SerialNetworkInterface.h>
+  #include <helpers/esp32/CompanionNetwork.h>
+  SerialNetworkInterface ethernet_companion_interface;
+#endif
+
 // include hardware serial interface
 #if defined(SERIAL_RX)
   #include <helpers/ArduinoSerialInterface.h>
@@ -210,6 +220,14 @@ void setup() {
   interface_manager.addInterface(InterfaceType::WiFi, &wifi_interface);
 #endif
 
+// add native ESP32 Ethernet companion interface
+#if defined(ETHERNET_COMPANION)
+  board.setInhibitSleep(true);
+  companion_network::begin(the_mesh.getNodePrefs()->node_name);
+  ethernet_companion_interface.begin(TCP_PORT);
+  interface_manager.addInterface(InterfaceType::Ethernet, &ethernet_companion_interface);
+#endif
+
 // add usb interface
 #if defined(ENABLE_USB_INTERFACE)
   usb_serial_interface.begin(Serial);
@@ -248,6 +266,9 @@ void loop() {
   the_mesh.loop();
   interface_manager.loop();
   sensors.loop();
+#if defined(ESP32) && defined(ETHERNET_COMPANION)
+  companion_network::loop();
+#endif
 #ifdef DISPLAY_CLASS
   ui_task.loop();
 #endif
