@@ -1,0 +1,63 @@
+name: Build Photon ESP32-C6 MeshCore Firmwares
+run-name: Build Photon ESP32-C6 MeshCore Firmwares (${{ github.ref_name }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      firmware_version:
+        description: "Version used in artifact filenames, for example v1.17.0"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Build Environment
+        uses: ./.github/actions/setup-build-environment
+
+      - name: Resolve Firmware Version
+        shell: bash
+        env:
+          FIRMWARE_VERSION_INPUT: ${{ inputs.firmware_version }}
+        run: |
+          if [ -n "${FIRMWARE_VERSION_INPUT}" ]; then
+            version="${FIRMWARE_VERSION_INPUT}"
+          elif [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            version="${GITHUB_REF#refs/tags/}"
+          else
+            version="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          fi
+
+          if [ -z "${version}" ]; then
+            version="manual-${GITHUB_SHA::7}"
+          fi
+
+          echo "FIRMWARE_VERSION=${version}" >> "${GITHUB_ENV}"
+          echo "Using firmware version: ${version}"
+
+      - name: Build Photon ESP32-C6 Firmwares
+        shell: bash
+        env:
+          FIRMWARE_VERSION: ${{ env.FIRMWARE_VERSION }}
+        run: /usr/bin/env bash scripts/build-photon-esp32-c6-firmwares.sh
+
+      - name: Generate Checksums
+        shell: bash
+        run: sha256sum out/*.bin > out/SHA256SUMS.txt
+
+      - name: Upload Workflow Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: photon-esp32-c6-meshcore-firmwares-${{ env.FIRMWARE_VERSION }}
+          path: out/*
+          if-no-files-found: error
