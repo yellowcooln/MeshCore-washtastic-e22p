@@ -1091,7 +1091,7 @@ void MyMesh::sendBatteryInfoAdvert(int delay_millis) {
   if (max_body <= 0) return;
   char body[MAX_PACKET_PAYLOAD];
   const size_t body_len = rak10724::formatStatus(body, max_body + 1,
-      board.getBattMilliVolts(), RAK10724_LOW_BATTERY_MV, rak10724::snapshot(),
+      board.getBattMilliVolts(), rak10724::snapshot(),
       _prefs.powersaving_enabled, _prefs.rxps.enabled);
   if (!body_len) return;
 

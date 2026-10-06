@@ -11,26 +11,26 @@ struct Snapshot {
   float bus_v = 0, current_ma = 0, power_mw = 0;
 };
 inline size_t formatStatus(char* out, size_t capacity, uint16_t battery_mv,
-                          uint16_t low_mv, const Snapshot& sample,
+                          const Snapshot& sample,
                           bool power_saving, bool rxps) {
   if (!capacity) return 0;
   char battery[32], temp[16], hum[16], bus[16], current[16], power[16];
   if (battery_mv == 0 || battery_mv == 0xFFFF) {
     snprintf(battery, sizeof(battery), "na");
   } else {
-    // Preserve the existing BatteryInfo curve, explicitly labelled an estimate.
-    int pct = ((int)battery_mv - 3000) * 100 / 1200;
+    // Preserve the original BatteryInfo voltage curve, rounding and text format.
+    const float v = (float)battery_mv / 1000.0f;
+    int pct = (int)roundf((v - 3.0f) / (4.2f - 3.0f) * 100.0f);
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
-    snprintf(battery, sizeof(battery), "%.2fv est=%d%% %s",
-             battery_mv / 1000.0, pct, battery_mv <= low_mv ? "LOW" : "OK");
+    snprintf(battery, sizeof(battery), "%.2fv %d%%", battery_mv / 1000.0, pct);
   }
   const bool env = sample.environment_valid && isfinite(sample.temperature_c) &&
                    isfinite(sample.humidity_pct);
   const bool ina = sample.power_valid && isfinite(sample.bus_v) &&
                    isfinite(sample.current_ma) && isfinite(sample.power_mw);
   if (env) {
-    snprintf(temp, sizeof(temp), "%.1fc", sample.temperature_c);
+    snprintf(temp, sizeof(temp), "%.1fF", sample.temperature_c * 9.0f / 5.0f + 32.0f);
     snprintf(hum, sizeof(hum), "%.1f%%", sample.humidity_pct);
   } else {
     snprintf(temp, sizeof(temp), "na"); snprintf(hum, sizeof(hum), "na");

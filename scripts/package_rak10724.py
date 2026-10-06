@@ -36,6 +36,8 @@ with zipfile.ZipFile(build / 'firmware.zip') as archive:
     assert b'v1.17.1-PS17.1.5-rak10724' in app_bin, 'Wrong firmware version'
     assert b'RAK10724 Repeater' in app_bin, 'Wrong target identity'
     assert b'battery=%s temp=%s hum=%s bus=%s I=%s P=%s ps=%d rxps=%d' in app_bin
+    assert b'%.2fv %d%%' in app_bin and b'%.1fF' in app_bin
+    assert b'%.2fv est=%d%% %s' not in app_bin, 'Unexpected battery alert format'
     expected = bytearray(b'\xff' * (max(a+s for _, a, s, _ in blocks) - 0x26000))
     for _, address, size, payload in blocks:
         expected[address - 0x26000:address - 0x26000 + size] = payload

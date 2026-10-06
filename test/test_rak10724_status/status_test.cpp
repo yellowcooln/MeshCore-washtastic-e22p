@@ -39,34 +39,37 @@ struct ShtBus {
 };
 TEST(RAK10724Status, MissingSensorsAreNotZeroReadings) {
   rak10724::Snapshot s; char body[160];
-  ASSERT_GT(rak10724::formatStatus(body, sizeof(body), 3400, 3500, s, true, true), 0U);
-  EXPECT_NE(strstr(body, "battery=3.40v"), nullptr);
-  EXPECT_NE(strstr(body, "LOW"), nullptr);
+  ASSERT_GT(rak10724::formatStatus(body, sizeof(body), 3400, s, true, true), 0U);
+  EXPECT_NE(strstr(body, "battery=3.40v 33%"), nullptr);
+  EXPECT_EQ(strstr(body, "LOW"), nullptr);
+  EXPECT_EQ(strstr(body, "OK"), nullptr);
   EXPECT_NE(strstr(body, "temp=na"), nullptr);
   EXPECT_NE(strstr(body, "bus=na"), nullptr);
 }
-TEST(RAK10724Status, BatteryThresholdAndEstimate) {
+TEST(RAK10724Status, OriginalBatteryPercentageWithoutAlertLabels) {
   rak10724::Snapshot s; char body[160];
   for (uint16_t mv : {3500, 3501, 2900, 4500}) {
-    ASSERT_GT(rak10724::formatStatus(body, sizeof(body), mv, 3500, s, false, false), 0U);
-    EXPECT_NE(strstr(body, mv <= 3500 ? "LOW" : "OK"), nullptr);
-    if (mv == 2900) EXPECT_NE(strstr(body, "est=0%"), nullptr);
-    if (mv == 4500) EXPECT_NE(strstr(body, "est=100%"), nullptr);
+    ASSERT_GT(rak10724::formatStatus(body, sizeof(body), mv, s, false, false), 0U);
+    EXPECT_EQ(strstr(body, "LOW"), nullptr);
+    EXPECT_EQ(strstr(body, "OK"), nullptr);
+    EXPECT_EQ(strstr(body, "est="), nullptr);
+    if (mv == 2900) EXPECT_NE(strstr(body, "battery=2.90v 0%"), nullptr);
+    if (mv == 4500) EXPECT_NE(strstr(body, "battery=4.50v 100%"), nullptr);
   }
 }
 TEST(RAK10724Status, UnavailableBatteryNeverGeneratesLowWarning) {
   rak10724::Snapshot s; char body[160];
   for (uint16_t mv : {0, 65535}) {
-    ASSERT_GT(rak10724::formatStatus(body, sizeof(body), mv, 3500, s, true, true), 0U);
+    ASSERT_GT(rak10724::formatStatus(body, sizeof(body), mv, s, true, true), 0U);
     EXPECT_NE(strstr(body, "battery=na"), nullptr);
     EXPECT_EQ(strstr(body, "LOW"), nullptr);
   }
 }
 TEST(RAK10724Status, OversizedMessageIsDroppedNotTruncated) {
   rak10724::Snapshot s; char body[8] = "bad";
-  EXPECT_EQ(rak10724::formatStatus(body, sizeof(body), 4000, 3500, s, true, true), 0U);
+  EXPECT_EQ(rak10724::formatStatus(body, sizeof(body), 4000, s, true, true), 0U);
   EXPECT_STREQ(body, "");
-  EXPECT_EQ(rak10724::formatStatus(nullptr, 0, 4000, 3500, s, true, true), 0U);
+  EXPECT_EQ(rak10724::formatStatus(nullptr, 0, 4000, s, true, true), 0U);
 }
 TEST(RAK10724Power, SignedCurrentUnitsAndPowerDown) {
   rak10724::Snapshot s; Bus bus;
@@ -75,7 +78,7 @@ TEST(RAK10724Power, SignedCurrentUnitsAndPowerDown) {
   EXPECT_FLOAT_EQ(s.bus_v, 3.75); EXPECT_FLOAT_EQ(s.power_mw, -380);
   EXPECT_EQ(bus.last_config, 0x6120); EXPECT_EQ(bus.writes, 2);
   char body[160];
-  ASSERT_GT(rak10724::formatStatus(body, sizeof(body), 4000, 3500, s, true, true), 0U);
+  ASSERT_GT(rak10724::formatStatus(body, sizeof(body), 4000, s, true, true), 0U);
   EXPECT_NE(strstr(body, "I=-100.0mA"), nullptr);
   EXPECT_NE(strstr(body, "P=-380mW"), nullptr);
 }
@@ -102,6 +105,10 @@ TEST(RAK10724Environment, CRCUnitsAndSleep) {
   ASSERT_TRUE(rak10724::sampleEnvironment(bus, s)); EXPECT_TRUE(s.environment_valid);
   EXPECT_NEAR(s.temperature_c, 25, 0.01); EXPECT_NEAR(s.humidity_pct, 50, 0.01);
   EXPECT_EQ(bus.last_command, 0xB098); EXPECT_EQ(bus.reads, 1);
+  char body[160];
+  ASSERT_GT(rak10724::formatStatus(body, sizeof(body), 3500, s, true, true), 0U);
+  EXPECT_NE(strstr(body, "battery=3.50v 42%"), nullptr);
+  EXPECT_NE(strstr(body, "temp=77.0F"), nullptr);
 }
 TEST(RAK10724Environment, CorruptCRCInvalidatesOldReadingAndSleeps) {
   rak10724::Snapshot s; s.environment_valid = true; ShtBus bus; bus.corrupt = true;
