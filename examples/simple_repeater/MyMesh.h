@@ -108,6 +108,11 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   NeighbourInfo neighbours[MAX_NEIGHBOURS];
 #endif
   CayenneLPP telemetry;
+#ifdef ENABLE_BATTERY_INFO_ADVERT
+  mesh::GroupChannel batteryinfo_channel = {};
+  bool batteryinfo_channel_ready = false;
+  void sendBatteryInfoAdvert(int delay_millis);
+#endif
   unsigned long set_radio_at, revert_radio_at;
   float pending_freq;
   float pending_bw;

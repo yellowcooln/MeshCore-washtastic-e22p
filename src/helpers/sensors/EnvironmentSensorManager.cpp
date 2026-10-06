@@ -2,6 +2,12 @@
 
 #include <Wire.h>
 
+#ifdef RAK10724_TELEMETRY
+#include "RAK10724Wire.h"
+static rak10724::Snapshot rak10724_sample;
+const rak10724::Snapshot& rak10724::snapshot() { return rak10724_sample; }
+#endif
+
 #if ENV_PIN_SDA && ENV_PIN_SCL
 #define TELEM_WIRE &Wire1  // Use Wire1 as the I2C bus for Environment Sensors
 #else
@@ -317,14 +323,26 @@ static void query_bmp280(uint8_t ch, uint8_t, CayenneLPP& lpp) {
 
 #if ENV_INCLUDE_SHTC3
 static uint8_t init_shtc3(TwoWire* wire, uint8_t) {
+#ifdef RAK10724_TELEMETRY
+  return rak10724::WireSensor(wire, 0x70).initEnvironment() ? 1 : 0;
+#else
   // Adafruit_SHTC3::begin() does not accept an address (fixed at 0x70).
   return SHTC3.begin(wire) ? 1 : 0;
+#endif
 }
 static void query_shtc3(uint8_t ch, uint8_t, CayenneLPP& lpp) {
+#ifdef RAK10724_TELEMETRY
+  rak10724::WireSensor bus(TELEM_WIRE, 0x70);
+  if (rak10724::sampleEnvironment(bus, rak10724_sample)) {
+    lpp.addTemperature(ch, rak10724_sample.temperature_c);
+    lpp.addRelativeHumidity(ch, rak10724_sample.humidity_pct);
+  }
+#else
   sensors_event_t humidity, temp;
   SHTC3.getEvent(&humidity, &temp);
   lpp.addTemperature(ch, temp.temperature);
   lpp.addRelativeHumidity(ch, humidity.relative_humidity);
+#endif
 }
 #endif
 
@@ -402,12 +420,26 @@ static void query_ina219(uint8_t ch, uint8_t, CayenneLPP& lpp) {
 
 #if ENV_INCLUDE_INA260
 static uint8_t init_ina260(TwoWire* wire, uint8_t addr) {
+#ifdef RAK10724_TELEMETRY
+  return rak10724::WireSensor(wire, addr).initPower() ? 1 : 0;
+#else
   return INA260.begin(addr, wire) ? 1 : 0;
+#endif
 }
 static void query_ina260(uint8_t ch, uint8_t, CayenneLPP& lpp) {
+#ifdef RAK10724_TELEMETRY
+  rak10724::WireSensor bus(TELEM_WIRE, TELEM_INA260_ADDRESS);
+  if (rak10724::samplePower(bus, rak10724_sample)) {
+    lpp.addVoltage(ch, rak10724_sample.bus_v);
+    lpp.addCurrent(ch, rak10724_sample.current_ma / 1000.0f);
+    // Standard LPP power is unsigned and whole watts; channel text retains mW.
+    lpp.addPower(ch, fabsf(rak10724_sample.power_mw) / 1000.0f);
+  }
+#else
   lpp.addVoltage(ch, INA260.readBusVoltage() / 1000.0f);
   lpp.addCurrent(ch, INA260.readCurrent() / 1000.0f);
   lpp.addPower(ch, INA260.readPower() / 1000.0f);
+#endif
 }
 #endif
 
