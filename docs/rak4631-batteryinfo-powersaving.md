@@ -14,9 +14,12 @@ new CLI/preferences or BatteryInfo transmissions.
 - Manual and scheduled flood adverts also enqueue a BatteryInfo group message
   on the same BatteryInfo channel used by the fork's existing Photon builds.
 - Local/zero-hop adverts do not trigger a BatteryInfo message.
-- The report includes battery volts, estimated percentage, temperature and
-  optional environmental readings. Missing environmental readings are `na`.
-  Temperature falls back to the MCU die temperature, not ambient temperature.
+- The report includes battery volts, estimated percentage, and the built-in
+  nRF52840 MCU die temperature in Fahrenheit. No external sensor is required.
+  Humidity, pressure, and altitude are not included. If the MCU temperature
+  cannot be read, the temperature field is omitted entirely.
+  This is chip temperature, not ambient air temperature; standard binary
+  telemetry remains in Celsius.
 - Percentage is a linear estimate between 3.0 V (0%) and 4.2 V (100%), clamped
   to that range. It is not a fuel-gauge measurement. Other battery chemistries
   need a different voltage curve.

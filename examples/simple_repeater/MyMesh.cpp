@@ -8,7 +8,6 @@
   #include <Utils.h>
   #include <math.h>
   #include <helpers/BatteryInfoAdvert.h>
-  #include <helpers/sensors/LPPDataHelpers.h>
 #endif
 
 /* ------------------------------ Config -------------------------------- */
@@ -462,112 +461,12 @@ bool MyMesh::sendBatteryInfoGroupText(const char* body, size_t body_len, int del
 
 void MyMesh::sendBatteryInfoAdvert(int delay_millis) {
   initBatteryInfoChannel();
-  if (!batteryinfo_channel_ready) {
+  if (!batteryinfo_channel_ready || maxBatteryInfoBodyLen() <= 0) {
     return;
   }
 
-  telemetry.reset();
-  const uint16_t battery_mv = board.getBattMilliVolts();
-  telemetry.addVoltage(TELEM_CHANNEL_SELF, (float)battery_mv / 1000.0f);
-
-  sensors.querySensors(0xFF, telemetry);
-
-  float temperature = board.getMCUTemperature();
-  if (!isnan(temperature)) {
-    telemetry.addTemperature(TELEM_CHANNEL_SELF, temperature);
-  }
-
-  const uint8_t tlen = telemetry.getSize();
-  float temp_c = 0.0f;
-  float humidity_pct = 0.0f;
-  float pressure_hpa = 0.0f;
-  float altitude_m = 0.0f;
-  bool has_temp = false;
-  bool has_humidity = false;
-  bool has_pressure = false;
-  bool has_altitude = false;
-
-  LPPReader reader(telemetry.getBuffer(), tlen);
-  uint8_t channel = 0;
-  uint8_t type = 0;
-  while (reader.readHeader(channel, type)) {
-    switch (type) {
-      case LPP_TEMPERATURE: {
-        float value;
-        if (reader.readTemperature(value) && !has_temp) {
-          temp_c = value;
-          has_temp = true;
-        }
-        break;
-      }
-      case LPP_RELATIVE_HUMIDITY: {
-        float value;
-        if (reader.readRelativeHumidity(value) && !has_humidity) {
-          humidity_pct = value;
-          has_humidity = true;
-        }
-        break;
-      }
-      case LPP_BAROMETRIC_PRESSURE: {
-        float value;
-        if (reader.readPressure(value) && !has_pressure) {
-          pressure_hpa = value;
-          has_pressure = true;
-        }
-        break;
-      }
-      case LPP_ALTITUDE: {
-        float value;
-        if (reader.readAltitude(value) && !has_altitude) {
-          altitude_m = value;
-          has_altitude = true;
-        }
-        break;
-      }
-      default:
-        reader.skipData(type);
-        break;
-    }
-  }
-
-  const int max_body = maxBatteryInfoBodyLen();
-  if (max_body <= 0) {
-    return;
-  }
-
-  const float battery_v = (float)battery_mv / 1000.0f;
-  const int battery_pct = batteryInfoPercentFromMillivolts(battery_mv);
-
-  char temp_str[16];
-  char hum_str[16];
-  char press_str[16];
-  char alt_str[16];
-
-  if (!has_temp) {
-    snprintf(temp_str, sizeof(temp_str), "na");
-  } else {
-    snprintf(temp_str, sizeof(temp_str), "%.1f", temp_c);
-  }
-  if (!has_humidity) {
-    snprintf(hum_str, sizeof(hum_str), "na");
-  } else {
-    snprintf(hum_str, sizeof(hum_str), "%.1f", humidity_pct);
-  }
-  if (!has_pressure) {
-    snprintf(press_str, sizeof(press_str), "na");
-  } else {
-    snprintf(press_str, sizeof(press_str), "%.1f", pressure_hpa);
-  }
-  if (!has_altitude) {
-    snprintf(alt_str, sizeof(alt_str), "na");
-  } else {
-    snprintf(alt_str, sizeof(alt_str), "%.0f", altitude_m);
-  }
-
-  char body[256];
-  snprintf(body, sizeof(body),
-           "battery=%.2fv %d%% temp=%sc hum=%s%% press=%shPa alt=%sm",
-           battery_v, battery_pct, temp_str, hum_str, press_str, alt_str);
+  char body[128];
+  formatBatteryInfoReport(body, sizeof(body), board.getBattMilliVolts(), board.getMCUTemperature());
   sendBatteryInfoGroupText(body, strlen(body), delay_millis);
 }
 #endif
