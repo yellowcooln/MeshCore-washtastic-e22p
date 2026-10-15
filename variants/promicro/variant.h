@@ -90,7 +90,9 @@
 #define P_LORA_SCLK               (12)
 #define P_LORA_MOSI               (14)
 #define SX126X_POWER_EN           (21)
+#ifndef SX126X_RXEN
 #define SX126X_RXEN               (2)
+#endif
 #define SX126X_TXEN               (-1)
 #define SX126X_DIO2_AS_RF_SWITCH  true
 #define SX126X_DIO3_TCXO_VOLTAGE  (1.8f)
