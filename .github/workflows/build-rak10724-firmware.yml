@@ -1,0 +1,30 @@
+# Manual-only workflow; no event/user input is interpolated into shell commands.
+name: Build RAK10724 PowerSaving BatteryInfo
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-build-environment
+      - name: Verify native tests and routing
+        run: |
+          pio test -e native
+          python3 scripts/check_rak10724_routing.py
+      - name: Build application and UF2
+        run: |
+          pio run -e RAK_10724_repeater
+          pio run -e RAK_10724_repeater -t create_uf2
+      - name: Package and verify
+        run: |
+          python3 scripts/package_rak10724.py --output "$RUNNER_TEMP/rak10724-v18"
+          cd "$RUNNER_TEMP/rak10724-v18"
+          sha256sum -c SHA256SUMS.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: RAK10724-BatteryInfo-PowerSaving-v18
+          path: ${{ runner.temp }}/rak10724-v18/*
+          if-no-files-found: error
