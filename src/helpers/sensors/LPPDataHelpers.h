@@ -196,6 +196,10 @@ public:
     voltage = LPPData::getFloat(&_buf[_pos], 2, 100, false); _pos += 2;
     return _pos <= _len;
   }
+  bool readAnalogInput(float& value) {
+    value = LPPData::getFloat(&_buf[_pos], 2, 100, true); _pos += 2;
+    return _pos <= _len;
+  }
   bool readCurrent(float& amps) {
     amps = LPPData::getFloat(&_buf[_pos], 2, 1000, true); _pos += 2;
     return _pos <= _len;

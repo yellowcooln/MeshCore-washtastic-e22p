@@ -1,4 +1,8 @@
 #include "MyMesh.h"
+#ifdef ENABLE_BATTERY_INFO_ADVERT
+#include <Utils.h>
+#include <helpers/PhotonBatteryReport.h>
+#endif
 #include <algorithm>
 
 /* ------------------------------ Config -------------------------------- */
@@ -1052,11 +1056,47 @@ bool MyMesh::formatFileSystem() {
 #endif
 }
 
+#ifdef ENABLE_BATTERY_INFO_ADVERT
+void MyMesh::sendBatteryInfoAdvert(int delay_millis) {
+  if (!batteryinfo_channel_ready) {
+    if (!mesh::Utils::fromHex(batteryinfo_channel.secret, 16, BATTERY_INFO_CHANNEL_SECRET_HEX))
+      return;
+    mesh::Utils::sha256(batteryinfo_channel.hash, sizeof(batteryinfo_channel.hash),
+                       batteryinfo_channel.secret, 16);
+    batteryinfo_channel_ready = true;
+  }
+  // Preserve existing BatteryInfo flood cadence, not an independent RF timer.
+  const size_t name_len = strlen(_prefs.node_name);
+  const int max_body = MAX_PACKET_PAYLOAD - CIPHER_BLOCK_SIZE - 5 - (int)name_len - 2;
+  if (max_body <= 0) return;
+  char body[MAX_PACKET_PAYLOAD];
+  if (!photonBatteryReport(body, max_body + 1, board.getBattMilliVolts(),
+      board.getMCUTemperature(), board.getBattChargeRatePctPerHour())) return;
+  const size_t body_len = strlen(body);
+
+  uint8_t data[MAX_PACKET_PAYLOAD];
+  const uint32_t timestamp = getRTCClock()->getCurrentTimeUnique();
+  memcpy(data, &timestamp, 4);
+  data[4] = 0; // TXT_TYPE_PLAIN
+  memcpy(data + 5, _prefs.node_name, name_len);
+  size_t offset = 5 + name_len;
+  data[offset++] = ':'; data[offset++] = ' ';
+  memcpy(data + offset, body, body_len);
+  // Match existing BatteryInfo group-message routing and path-hash width.
+  mesh::Packet* pkt = createGroupDatagram(PAYLOAD_TYPE_GRP_TXT, batteryinfo_channel,
+                                        data, offset + body_len);
+  if (pkt) sendFlood(pkt, delay_millis, _prefs.path_hash_mode + 1);
+}
+#endif
+
 void MyMesh::sendSelfAdvertisement(int delay_millis, bool flood) {
   mesh::Packet *pkt = createSelfAdvert();
   if (pkt) {
     if (flood) {
       sendFloodScoped(default_scope, pkt, delay_millis, _prefs.path_hash_mode + 1);
+#ifdef ENABLE_BATTERY_INFO_ADVERT
+      sendBatteryInfoAdvert(delay_millis);
+#endif
     } else {
       sendZeroHop(pkt, delay_millis);
     }
@@ -1318,7 +1358,12 @@ void MyMesh::loop() {
   if (next_flood_advert && millisHasNowPassed(next_flood_advert)) {
     mesh::Packet *pkt = createSelfAdvert();
     uint32_t delay_millis = 0;
-    if (pkt) sendFloodScoped(default_scope, pkt, delay_millis, _prefs.path_hash_mode + 1);
+    if (pkt) {
+      sendFloodScoped(default_scope, pkt, delay_millis, _prefs.path_hash_mode + 1);
+#ifdef ENABLE_BATTERY_INFO_ADVERT
+      sendBatteryInfoAdvert(delay_millis);
+#endif
+    }
 
     updateFloodAdvertTimer(); // schedule next flood advert
     updateAdvertTimer();      // also schedule local advert (so they don't overlap)

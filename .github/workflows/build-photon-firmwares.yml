@@ -1,0 +1,30 @@
+# Manual-only workflow; no event/user input is interpolated into shell commands.
+name: Build Photon Firmwares
+run-name: Photon nRF52 BatteryInfo + PowerSaving v18 (${{ github.ref_name }})
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-build-environment
+      - name: Verify report formatting and routing
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -Isrc scripts/tests/photon_battery_report_test.cpp -o "$RUNNER_TEMP/report-test"
+          "$RUNNER_TEMP/report-test"
+          python3 scripts/check_batteryinfo_routing.py
+          pio test -e native
+      - name: Build combo and verify application artifacts
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/photon-v18
+        run: bash scripts/build-photon-firmwares.sh
+      - name: Verify checksums
+        run: cd "$RUNNER_TEMP/photon-v18" && sha256sum -c SHA256SUMS.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Photon-nRF52-BatteryInfo-PowerSaving-v18
+          path: ${{ runner.temp }}/photon-v18/*
+          if-no-files-found: error

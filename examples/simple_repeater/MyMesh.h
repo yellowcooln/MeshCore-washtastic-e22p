@@ -104,6 +104,11 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   NeighbourInfo neighbours[MAX_NEIGHBOURS];
 #endif
   CayenneLPP telemetry;
+#ifdef ENABLE_BATTERY_INFO_ADVERT
+  mesh::GroupChannel batteryinfo_channel = {};
+  bool batteryinfo_channel_ready = false;
+  void sendBatteryInfoAdvert(int delay_millis);
+#endif
   unsigned long set_radio_at, revert_radio_at;
   float pending_freq;
   float pending_bw;
@@ -160,6 +165,17 @@ protected:
 #if ENV_INCLUDE_GPS == 1
   void applyGpsPrefs() {
     sensors.setSettingValue("gps", _prefs.gps_enabled?"1":"0");
+#if defined(MESHSMITH_PHOTON_GPS_TIME)
+    LocationProvider* location = sensors.getLocationProvider();
+    if (location != NULL) {
+      location->setTimeSyncInterval(_prefs.gps_interval);
+      if (_prefs.gps_interval > 0) {
+        location->syncTime();
+      } else {
+        location->cancelTimeSync();
+      }
+    }
+#endif
   }
 #endif
 
